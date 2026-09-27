@@ -33,6 +33,46 @@ test.describe('job cap, age window and AI diagnostics', () => {
     expect(seen.rows[0].n).toBe(25); // all still remembered: none can be re-sent later
   });
 
+  test('a location preference keeps only jobs in that country ("United States" matches USA / state codes)', async ({ page, api, mocks, mockPortal, discordInbox }) => {
+    const { configureDiscord } = await import('../fixtures/index.js');
+    await configureDiscord(api, discordInbox);
+    const { company } = await seedCompany(api, mocks.portal.url, { kind: 'gh', role_mode: 'all_jobs', companyExtra: { source_filters: { location: 'United States' } } });
+    await api.tick();
+    const listed = (await api.get(`/api/jobs?company_id=${company.id}&limit=500`)).items;
+    expect(listed.some((j) => j.location === 'London, UK')).toBe(false);
+    expect(listed.some((j) => j.location === 'Austin, TX')).toBe(true);
+    expect(listed.some((j) => j.location === 'Remote')).toBe(true); // no country info: kept
+    const run = (await api.get(`/api/companies/${company.id}/runs`)).items[0];
+    expect(run.stats.skipped.other_location).toBe(4);
+
+    await mockPortal.addJob('acme', { id: 'hyd1', title: 'Software Engineer', location: 'IN, TS, Hyderabad' });
+    await mockPortal.addJob('acme', { id: 'sea1', title: 'Software Engineer', location: 'Seattle, Washington, USA' });
+    await api.advanceClock(11 * 60000);
+    await api.tick();
+    expect((await discordInbox.embeds()).map((e) => e.fields.find((f) => f.name === 'Location').value)).toEqual(['Seattle, Washington, USA']);
+
+    // Changing the location on the company page cleans up right away.
+    await page.goto(`/#/companies/${company.id}?tab=roles`);
+    await page.getByTestId('company-location-edit').fill('Texas');
+    await page.getByTestId('company-location-save').click();
+    await expect.poll(async () => (await api.get(`/api/jobs?company_id=${company.id}&limit=500`)).items.every((j) => /TX|Remote/.test(j.location))).toBe(true);
+  });
+
+  test('activating a new rule clears listings the new rule no longer returns', async ({ api, mocks, mockPortal }) => {
+    const { company } = await seedCompany(api, mocks.portal.url, { kind: 'gh', role_mode: 'all_jobs' });
+    await api.tick();
+    expect((await api.get(`/api/jobs?company_id=${company.id}&limit=500`)).items).toHaveLength(25);
+    await mockPortal.board('acme', { seed: 3 }); // e.g. the new rule is narrower (US only)
+    const { ruleFor } = await import('../fixtures/seed.js');
+    await api.post('/api/rules', { companyId: company.id, spec: ruleFor('html', mocks.portal.url), activate: true, force: true, reason: 'narrower rule' });
+    await api.advanceClock(11 * 60000);
+    const t = await api.tick();
+    expect(t.runs[0].status).toBe('ok');
+    expect((await api.get(`/api/jobs?company_id=${company.id}&limit=500`)).items).toHaveLength(3);
+    const seen = await api.sql('select count(*) n from seen_jobs where company_id = ?', [company.id]);
+    expect(seen.rows[0].n).toBeGreaterThanOrEqual(25); // still remembered, never re-sent
+  });
+
   test('a per-company age window overrides the global one', async ({ api, mocks }) => {
     const { company } = await seedCompany(api, mocks.portal.url, { kind: 'gh', role_mode: 'all_jobs', companyExtra: { notify_filters: { maxJobAgeDays: 1 } } });
     await api.tick();

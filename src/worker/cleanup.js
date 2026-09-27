@@ -6,6 +6,7 @@ import { childLogger } from '../log/logger.js';
 import { config } from '../config.js';
 import { now } from '../runtime.js';
 import { runtime } from '../runtime.js';
+import { inWantedLocation, wantedLocations } from '../roles/match.js';
 
 const log = childLogger('scheduler');
 const DAY = 86400000;
@@ -28,9 +29,19 @@ export function runCleanup() {
     const trim = db.prepare(`delete from jobs where company_id = ? and id not in (
       select id from jobs where company_id = ? order by coalesce(posted_at, first_seen_at) desc limit ?)`);
     res.trimmed = 0;
-    for (const c of db.prepare('select id, notify_filters from companies').all()) {
-      const days = JSON.parse(c.notify_filters || '{}')?.maxJobAgeDays ?? globalDays;
+    res.otherLocation = 0;
+    const delJob = db.prepare('delete from jobs where id = ?');
+    for (const c of db.prepare('select id, notify_filters, source_filters from companies').all()) {
+      const company = { ...c, notify_filters: JSON.parse(c.notify_filters || 'null'), source_filters: JSON.parse(c.source_filters || 'null') };
+      const days = company.notify_filters?.maxJobAgeDays ?? globalDays;
       res.agedOut += del.run(c.id, t - days * DAY).changes;
+      // Listings outside the company's wanted locations (e.g. left over from an older, worldwide rule).
+      const wanted = wantedLocations(company, getSettings('filters'));
+      if (wanted.length) {
+        for (const j of db.prepare('select id, location from jobs where company_id = ? and location is not null').all(c.id)) {
+          if (!inWantedLocation(j, wanted)) res.otherLocation += delJob.run(j.id).changes;
+        }
+      }
       res.trimmed += trim.run(c.id, c.id, maxJobs).changes;
     }
     res.seenJobs = db.prepare('delete from seen_jobs where last_seen_at < ?').run(t - r.seenJobDays * DAY).changes;

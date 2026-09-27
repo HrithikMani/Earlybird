@@ -16,6 +16,50 @@ function ScoreLine({ score }) {
   return <span className="muted small">score {score.total?.toFixed(2)} ({parts.join(' · ')})</span>;
 }
 
+function LocationEditor({ company, onSaved }) {
+  const [value, setValue] = useState(company.source_filters?.location || '');
+  return (
+    <div className="row" style={{ marginTop: 8 }}>
+      <label className="field" style={{ margin: 0, flex: 1, minWidth: 260 }}>
+        <span>Location: used as the portal filter, and only jobs here are kept and sent ("United States" also matches USA, US and state codes)</span>
+        <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="United States" data-testid="company-location-edit" />
+      </label>
+      <ActionButton
+        onClick={async () => {
+          await api.put(`/api/companies/${company.id}`, { source_filters: { ...(company.source_filters || {}), location: value.trim() || undefined } });
+          await api.post('/api/maintenance/cleanup');
+          onSaved();
+        }}
+        testId="company-location-save"
+      >
+        Save location
+      </ActionButton>
+    </div>
+  );
+}
+
+function AgeEditor({ company, onSaved }) {
+  const [value, setValue] = useState(company.notify_filters?.maxJobAgeDays ?? '');
+  return (
+    <div className="row">
+      <input type="number" min="1" style={{ width: 90 }} value={value} onChange={(e) => setValue(e.target.value)} placeholder="global" data-testid="company-age-edit" /> days
+      <ActionButton
+        onClick={async () => {
+          const nf = { ...(company.notify_filters || {}) };
+          if (value === '' || value === null) delete nf.maxJobAgeDays;
+          else nf.maxJobAgeDays = Number(value);
+          await api.put(`/api/companies/${company.id}`, { notify_filters: nf });
+          await api.post('/api/maintenance/cleanup');
+          onSaved();
+        }}
+        testId="company-age-save"
+      >
+        Save
+      </ActionButton>
+    </div>
+  );
+}
+
 function RuleCard({ title, rule, actions, testId }) {
   if (!rule) return null;
   return (
@@ -162,6 +206,11 @@ export default function CompanyDetail({ params }) {
               <option value="all_jobs">All jobs (no role filter)</option>
             </select>
             <p className="muted small">Search terms sent to the portal: {d.search_terms.join(', ') || '(none: fetch all jobs)'}</p>
+            <LocationEditor company={c} onSaved={reload} />
+          </Card>
+          <Card title="Only jobs posted within">
+            <p className="muted small">Leave empty to use the global setting (Settings → Filters).</p>
+            <AgeEditor company={c} onSaved={reload} />
           </Card>
           <Card title={`Roles only for ${c.name}`} testId="company-roles">
             <RoleTable roles={d.company_roles} scope="company" companyId={c.id} onChange={reload} />

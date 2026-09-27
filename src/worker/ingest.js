@@ -1,6 +1,6 @@
 import { getSqlite, newId } from '../db/index.js';
 import { getSettings } from '../settings/index.js';
-import { matchRoles, filterReason } from '../roles/match.js';
+import { matchRoles, filterReason, inWantedLocation, wantedLocations } from '../roles/match.js';
 import { jobKeys } from './dedupe.js';
 import { now } from '../runtime.js';
 
@@ -18,6 +18,7 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
   const channelId = company.discord_channel_id || getSettings('discord').jobsChannelId;
   // User preference: only jobs posted within N days matter (per-company override in notify_filters).
   const cutoff = t - (filters.maxJobAgeDays ?? globalFilters.maxJobAgeDays) * 86400000;
+  const wanted = wantedLocations(company, globalFilters);
   const renotifyMs = dedupe.renotifyRepostedAfterDays ? dedupe.renotifyRepostedAfterDays * 86400000 : null;
 
   const baselinedTerms = new Set(db.prepare('select term from company_terms where company_id = ?').all(company.id).map((r) => r.term.toLowerCase()));
@@ -59,14 +60,16 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
       const keys = jobKeys(job, company.id, dedupe.trackingParams);
       if (seenThisRun.has(keys.job_key)) continue;
       seenThisRun.add(keys.job_key);
-      // Older than the user's window: remember it (so it can never count as new) but don't list or send it.
-      if (job.posted_at && job.posted_at < cutoff) {
+      // Older than the user's window, or outside the wanted locations: remember it (so it can never count as new)
+      // but don't list or send it.
+      const tooOld = job.posted_at && job.posted_at < cutoff;
+      if (tooOld || !inWantedLocation(job, wanted)) {
         const old = q.listingByKey.get(company.id, keys.job_key);
         if (old) q.deleteListing.run(old.id);
         const seenOld = q.seenByKey.get(company.id, keys.job_key);
         if (seenOld) q.touchSeen.run(t, company.id, keys.job_key);
         else q.insertSeen.run(company.id, keys.job_key, job.external_id ?? null, keys.canonical_url, keys.fingerprint, job.title, t, t, rule.id);
-        skip('too_old');
+        skip(tooOld ? 'too_old' : 'other_location');
         continue;
       }
       const matched = matchRoles(job.title, roles);
@@ -126,7 +129,13 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
     // 4. Remember which search terms have had their silent baseline.
     for (const term of queries) if (term) q.insertTerm.run(company.id, term, t);
 
-    // 5. Full sweeps close listings that disappeared (2 consecutive misses).
+    // 5. A baseline for a new rule replaces the listing: anything the new rule did not return came from an older
+    //    rule or configuration (e.g. worldwide jobs before a US-only rule). They stay in seen_jobs, so never re-sent.
+    if (baseline && jobs.length > 0) {
+      stats.removed_old_rule = db.prepare('delete from jobs where company_id = ? and last_seen_at < ?').run(company.id, t).changes;
+    }
+
+    // 6. Full sweeps close listings that disappeared (2 consecutive misses).
     if (mode === 'full' && jobs.length > 0 && !capped) {
       const all = queries.includes('');
       const lower = new Set(queries.filter(Boolean).map((x) => x.toLowerCase()));

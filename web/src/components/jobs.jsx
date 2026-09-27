@@ -67,7 +67,7 @@ function SortHeader({ label, desc, asc, value, onChange, testId }) {
   );
 }
 
-const REASONS = ['', 'already_seen', 'baseline', 'role_mismatch', 'filtered', 'too_old', 'no_channel'];
+const REASONS = ['', 'already_seen', 'baseline', 'role_mismatch', 'filtered', 'too_old', 'other_location', 'no_channel'];
 
 export function JobsTable({ companyId, ruleId, showCompany = true }) {
   const [f, setF] = useState({ q: '', status: 'open', notify_status: '', skip_reason: '', sort: 'posted', company_id: '' });
