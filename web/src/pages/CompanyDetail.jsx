@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { navigate, useApi, useRoute } from '../hooks.js';
-import { ActionButton, Badge, Card, Empty, ErrorBox, Json, Tabs, fmtAgo, fmtTime } from '../components/ui.jsx';
+import { ActionButton, Badge, Card, Empty, ErrorBox, Json, Tabs, fmtAgo, fmtElapsed, fmtTime, taskDuration } from '../components/ui.jsx';
 import { RoleTable } from '../components/roles.jsx';
 import { RunsTable } from '../components/runs.jsx';
 import { JobsTable } from '../components/jobs.jsx';
@@ -31,6 +31,7 @@ function RuleCard({ title, rule, actions, testId }) {
 
 function Overview({ d }) {
   const c = d.company;
+  const lastDiscovery = d.tasks.find((t) => t.kind === 'discovery');
   return (
     <>
       <Card title="Status">
@@ -44,6 +45,14 @@ function Overview({ d }) {
             <tr><th>Last full sweep</th><td>{fmtAgo(c.last_full_sweep_at)}</td></tr>
             <tr><th>Next run</th><td>{c.next_run_at ? fmtTime(c.next_run_at) : '—'}</td></tr>
             <tr><th>Open jobs</th><td>{c.open_jobs}</td></tr>
+            {lastDiscovery && (
+              <tr>
+                <th>Last discovery</th>
+                <td data-testid="last-discovery">
+                  <a href={`#/tasks/${lastDiscovery.id}`}><Badge value={lastDiscovery.status} /></a> {fmtAgo(lastDiscovery.created_at)} · took {fmtElapsed(taskDuration(lastDiscovery))} · {lastDiscovery.steps} steps · ${(lastDiscovery.cost_usd || 0).toFixed(2)} · {lastDiscovery.model}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </Card>

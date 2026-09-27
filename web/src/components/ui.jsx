@@ -14,6 +14,22 @@ export function fmtAgo(ms) {
   return `${fmtDur(s)} ago`;
 }
 
+/** "5m 24s" style duration from ms. */
+export function fmtElapsed(ms) {
+  if (ms === null || ms === undefined || ms < 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/** Duration of a task: finished − started, or so far when still running. */
+export function taskDuration(t) {
+  if (!t?.started_at) return null;
+  return (t.finished_at || Date.now()) - t.started_at;
+}
+
 export function fmtDur(s) {
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.round(s / 60)}m`;

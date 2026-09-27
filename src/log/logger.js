@@ -32,7 +32,10 @@ const streams = pino.multistream(
   [
     {
       level: config.logLevel,
-      stream: config.isProd || config.isTest
+      // The CLI keeps stdout clean for --json output: its logs go to stderr.
+      stream: process.env.EARLYBIRD_CLI === '1'
+        ? pino.destination({ dest: 2, sync: true })
+        : config.isProd || config.isTest
         ? pino.destination({ dest: 1, sync: false })
         : pretty({ colorize: true, translateTime: 'HH:MM:ss.l', ignore: 'pid,hostname,app,reqId', singleLine: true, sync: true }),
     },

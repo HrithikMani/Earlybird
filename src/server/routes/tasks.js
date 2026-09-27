@@ -48,7 +48,8 @@ export default async function taskRoutes(app) {
       p = t.parent_task_id;
     }
     const children = getSqlite().prepare('select id, status, attempt from tasks where parent_task_id = ?').all(task.id);
-    return { task, events, company: task.company_id ? getCompany(task.company_id) : null, retry_chain: chain, retries: children };
+    const { maxCostUsd, maxSteps, maxWallTimeMin } = getSettings('ai');
+    return { task, events, company: task.company_id ? getCompany(task.company_id) : null, retry_chain: chain, retries: children, limits: { maxCostUsd, maxSteps, maxWallTimeMin } };
   });
 
   // Live events: replays everything after ?after=<seq>, then streams new ones.

@@ -18,10 +18,12 @@ export class TaskCancelled extends Error {
   }
 }
 
-export function costOf(modelId, input, output) {
+/** Dollar cost of one step. Cache reads bill at ~0.1x and cache writes at 1.25x the input price. */
+export function costOf(modelId, input, output, { cacheRead = 0, cacheWrite = 0 } = {}) {
   const p = getSettings('ai').prices[modelId];
   if (!p) return 0;
-  return (input * p.input + output * p.output) / 1e6;
+  const plain = Math.max(0, input - cacheRead - cacheWrite);
+  return (plain * p.input + cacheRead * p.input * 0.1 + cacheWrite * p.input * 1.25 + output * p.output) / 1e6;
 }
 
 /**
@@ -72,8 +74,10 @@ export async function runAgentTurn({ state, model, system, messages, tools, sign
     const outT = step.usage?.outputTokens ?? 0;
     state.inputTokens += inT;
     state.outputTokens += outT;
-    state.costUsd = costOf(state.modelId, state.inputTokens, state.outputTokens);
-    emitTaskEvent(state.taskId, 'step', { step: state.steps, input_tokens: inT, output_tokens: outT, cost_usd: Number(state.costUsd.toFixed(4)), finish: step.finishReason });
+    const details = step.usage?.inputTokenDetails ?? {};
+    state.costUsd += costOf(state.modelId, inT, outT, { cacheRead: details.cacheReadTokens ?? 0, cacheWrite: details.cacheWriteTokens ?? 0 });
+    state.cacheReadTokens = (state.cacheReadTokens || 0) + (details.cacheReadTokens ?? 0);
+    emitTaskEvent(state.taskId, 'step', { step: state.steps, input_tokens: inT, output_tokens: outT, cache_read_tokens: details.cacheReadTokens ?? 0, cost_usd: Number(state.costUsd.toFixed(4)), finish: step.finishReason });
     if (step.text?.trim()) emitTaskEvent(state.taskId, 'model_text', { text: clip(step.text, 3000) });
     let progressed = false;
     for (const tc of step.toolCalls || []) {

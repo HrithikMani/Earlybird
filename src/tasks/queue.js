@@ -5,7 +5,7 @@ import { childLogger, errorDetail } from '../log/logger.js';
 import { runtime } from '../runtime.js';
 import { onTick } from '../worker/scheduler.js';
 import { getCompany, updateCompany } from '../store/companies.js';
-import { raiseAlert } from '../store/alerts.js';
+import { raiseAlert, resolveAlerts } from '../store/alerts.js';
 import * as registry from './registry.js';
 import { emitTaskEvent, forgetTask } from './events.js';
 
@@ -128,6 +128,7 @@ async function runTask(task) {
     await onTaskFailed(task, status, error);
   } else {
     finished.result = result;
+    if (task.kind === 'discovery' && task.company_id) await resolveAlerts(task.company_id, ['discovery_failed']);
     emitTaskEvent(task.id, 'status', { status, summary: result?.summary });
     tlog.info({ steps: state.steps, cost_usd: Number(state.costUsd.toFixed(4)), tokens: state.inputTokens + state.outputTokens }, `task succeeded: ${result?.summary ?? task.kind}`);
   }

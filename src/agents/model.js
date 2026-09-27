@@ -22,10 +22,11 @@ export function llmAvailable(modelId) {
 export function providerOptionsFor(modelId) {
   const { effort } = getSettings('ai');
   const legacy = /haiku|claude-3|claude-(opus|sonnet)-4-(0|1|5)\b|-20\d{6}$/.test(modelId);
-  const anthropic = {};
+  // Top-level prompt caching: each agent step re-sends the growing history, so cache it.
+  const anthropic = { cacheControl: { type: 'ephemeral' } };
   if (!legacy) anthropic.thinking = { type: 'adaptive' };
   if (effort !== 'default' && !/haiku|claude-3/.test(modelId)) anthropic.effort = effort;
-  return Object.keys(anthropic).length ? { anthropic } : undefined;
+  return { anthropic };
 }
 
 /** Builds the AI SDK language model for a model id from Settings. `mock:<script>` works in test mode only. */

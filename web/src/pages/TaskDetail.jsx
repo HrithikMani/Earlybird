@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, subscribe } from '../api.js';
 import { navigate, useApi } from '../hooks.js';
-import { ActionButton, Badge, Card, ErrorBox, Json, fmtTime } from '../components/ui.jsx';
+import { ActionButton, Badge, Card, ErrorBox, Json, fmtElapsed, fmtTime, taskDuration } from '../components/ui.jsx';
 import { ACTIVE } from '../components/tasks.jsx';
 
 const PHASES = ['explore', 'analyze', 'build', 'test', 'commit'];
@@ -88,7 +88,7 @@ export default function TaskDetail({ params }) {
           ))}
         </div>
       )}
-      {summary && <div className="banner" style={{ background: 'var(--ok-bg)', color: 'var(--ok)' }} data-testid="task-summary">{summary}</div>}
+      {summary && <div className="banner" style={{ background: 'var(--ok-bg)', color: 'var(--ok)' }} data-testid="task-summary">{summary}<div className="small" style={{ marginTop: 4 }} data-testid="task-summary-usage">Took {fmtElapsed(taskDuration(task))} · {task.steps} steps · ${(task.cost_usd || 0).toFixed(2)}</div></div>}
       {task.error_message && <div className="banner bad" data-testid="task-error">{task.error_type}: {task.error_message}</div>}
       <Card>
         <table>
@@ -96,7 +96,13 @@ export default function TaskDetail({ params }) {
             <tr><th>Company</th><td>{data.company ? <a href={`#/companies/${data.company.id}`}>{data.company.name}</a> : '—'}</td></tr>
             <tr><th>Model</th><td className="mono">{task.model || '—'}</td></tr>
             <tr><th>Prompt</th><td className="mono small">{task.prompt_file ? `${task.prompt_file} @ ${task.prompt_hash}` : '—'}</td></tr>
-            <tr><th>Progress</th><td data-testid="task-usage">{task.steps} steps · {task.input_tokens + task.output_tokens} tokens · ${(task.cost_usd || 0).toFixed(4)}</td></tr>
+            <tr>
+              <th>Usage</th>
+              <td data-testid="task-usage">
+                <strong>{fmtElapsed(taskDuration(task))}</strong> · {task.steps} steps · {(task.input_tokens + task.output_tokens).toLocaleString()} tokens · <strong>${(task.cost_usd || 0).toFixed(2)}</strong>{' '}
+                <span className="muted small">(limit ${data.limits?.maxCostUsd ?? '—'} per task, {data.limits?.maxSteps ?? '—'} steps, {data.limits?.maxWallTimeMin ?? '—'} min · Settings → AI)</span>
+              </td>
+            </tr>
             <tr><th>Attempt</th><td>#{task.attempt}{data.retry_chain.length > 0 && <> · retry of {data.retry_chain.map((t) => <a key={t.id} className="mono" href={`#/tasks/${t.id}`}> {t.id}</a>)}</>}{data.retries.length > 0 && <> · retried as {data.retries.map((t) => <a key={t.id} className="mono" href={`#/tasks/${t.id}`}> {t.id}</a>)}</>}</td></tr>
             {task.operator_note && <tr><th>Operator note</th><td>{task.operator_note}</td></tr>}
             <tr><th>Timing</th><td>created {fmtTime(task.created_at)}{task.started_at && ` · started ${fmtTime(task.started_at)}`}{task.finished_at && ` · finished ${fmtTime(task.finished_at)}`}</td></tr>

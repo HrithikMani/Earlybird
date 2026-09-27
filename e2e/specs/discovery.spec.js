@@ -70,6 +70,8 @@ test.describe('discovery (scripted mock LLM)', () => {
     const d2 = await api.get(`/api/companies/${companyId}`);
     expect(d2.company.status).toBe('active');
     expect(d2.tasks[0].attempt).toBe(2);
+    expect(d2.alerts.filter((a) => a.kind === 'discovery_failed' && a.state === 'open')).toHaveLength(0);
+    await expect(page.getByTestId('task-summary-usage')).toContainText('steps');
   });
 
   test('validation feedback lets the agent fix its rule within the same task', async ({ api, mocks }) => {

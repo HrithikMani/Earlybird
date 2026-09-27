@@ -11,6 +11,33 @@ const require = createRequire(path.join(ROOT, 'package.json'));
 // Tools the agents never get: arbitrary code execution and file access are too dangerous with untrusted web pages.
 const BLOCKED_TOOLS = new Set(['browser_run_code_unsafe', 'browser_file_upload', 'browser_drop']);
 
+// Page snapshots and network logs can be huge, and every agent step re-sends them. Keep each result bounded;
+// the agent can drill in with browser_find / browser_network_request when it needs more.
+const MAX_TOOL_TEXT = 12000;
+
+function clipTool(def) {
+  if (typeof def.execute !== 'function') return def;
+  return {
+    ...def,
+    execute: async (...args) => {
+      const res = await def.execute(...args);
+      if (!res || !Array.isArray(res.content)) return res;
+      let budget = MAX_TOOL_TEXT;
+      const content = res.content.map((part) => {
+        if (part.type !== 'text' || typeof part.text !== 'string') return part;
+        if (part.text.length <= budget) {
+          budget -= part.text.length;
+          return part;
+        }
+        const text = `${part.text.slice(0, Math.max(0, budget))}\n… [truncated ${part.text.length - budget} chars: use browser_find, browser_network_request or a narrower query for details]`;
+        budget = 0;
+        return { ...part, text };
+      });
+      return { ...res, content };
+    },
+  };
+}
+
 /** Command to start the Playwright MCP server with our installed Chromium (no npx, works on Windows/macOS/Linux). */
 export function playwrightMcpCommand({ outputDir } = {}) {
   const cli = path.join(path.dirname(require.resolve('@playwright/mcp/package.json')), 'cli.js');
@@ -46,7 +73,7 @@ export async function connectMcp({ agent, outputDir, log }) {
       const client = await createMCPClient({ transport, name: `earlybird-${agent}` });
       clients.push(client);
       const t = await client.tools();
-      for (const [name, def] of Object.entries(t)) if (!BLOCKED_TOOLS.has(name)) tools[name] = def;
+      for (const [name, def] of Object.entries(t)) if (!BLOCKED_TOOLS.has(name)) tools[name] = clipTool(def);
       servers.push({ name: spec.name, tools: Object.keys(t).length });
     }
   } catch (err) {

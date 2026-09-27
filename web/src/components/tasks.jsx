@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { navigate } from '../hooks.js';
-import { ActionButton, Badge, Empty, fmtAgo } from './ui.jsx';
+import { ActionButton, Badge, Empty, fmtAgo, fmtElapsed, taskDuration } from './ui.jsx';
 
 export const ACTIVE = ['queued', 'running', 'cancelling'];
 
@@ -21,7 +21,7 @@ export function TasksTable({ tasks, onChange, showCompany = false }) {
     <div className="table-wrap">
       <table data-testid="tasks-table">
         <thead>
-          <tr><th>Task</th><th>Kind</th>{showCompany && <th>Company</th>}<th>Status</th><th>Attempt</th><th>Steps</th><th>Cost</th><th>Created</th><th>Error</th><th></th></tr>
+          <tr><th>Task</th><th>Kind</th>{showCompany && <th>Company</th>}<th>Status</th><th>Attempt</th><th>Duration</th><th>Steps</th><th>Cost</th><th>Created</th><th>Error</th><th></th></tr>
         </thead>
         <tbody>
           {tasks.map((t) => (
@@ -31,6 +31,7 @@ export function TasksTable({ tasks, onChange, showCompany = false }) {
               {showCompany && <td>{t.company_name || t.company_id}</td>}
               <td><Badge value={t.status} testId="task-status" /></td>
               <td>{t.attempt}</td>
+              <td data-testid="task-duration">{fmtElapsed(taskDuration(t))}</td>
               <td>{t.steps}</td>
               <td>${(t.cost_usd || 0).toFixed(3)}</td>
               <td>{fmtAgo(t.created_at)}</td>
