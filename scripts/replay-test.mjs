@@ -12,7 +12,9 @@
 import http from 'node:http';
 import { startApp } from '../e2e/support/app-server.mjs';
 import { startMockDiscord } from '../e2e/support/mock-discord.mjs';
-import { getPath, setPath } from '../src/runner/extract.js';
+import * as cheerio from 'cheerio';
+import { chromium } from 'playwright';
+import { getPath, parseSelector, setPath } from '../src/runner/extract.js';
 
 const LIVE = process.env.EARLYBIRD_API_URL || `http://127.0.0.1:${process.env.PORT || 3000}`;
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
@@ -25,12 +27,37 @@ async function live(method, url, body) {
   return data;
 }
 
+/**
+ * Puts a fake job card at the top of a rendered page: a clone of the first real card (same markup, so the rule's
+ * selectors apply unchanged) with a new title and a new job link.
+ */
+function injectCard(html, { itemSelector, fields, title, stamp }) {
+  const $ = cheerio.load(html);
+  const first = $(itemSelector).first();
+  if (!first.length) return html;
+  const card = first.clone();
+  const t = parseSelector(fields.title);
+  const titleEl = t.sel ? card.find(t.sel).first() : card;
+  if (t.attr) titleEl.attr(t.attr, title);
+  else titleEl.text(title);
+  const u = parseSelector(fields.url);
+  const linkEl = u.sel ? card.find(u.sel).first() : card;
+  const href = linkEl.attr(u.attr || 'href') || '';
+  // Replace the last number in the link (the job id) so the fake job has its own id and URL.
+  const fakeHref = /\d{4,}(?!.*\d{4,})/.test(href) ? href.replace(/\d{4,}(?!.*\d{4,})/, `9${stamp}`) : `${href}${href.includes('?') ? '&' : '?'}earlybird_test=${stamp}`;
+  linkEl.attr(u.attr || 'href', fakeHref);
+  first.before(card);
+  return $.html();
+}
+
 // ---------------------------------------------------------------- recording / replaying proxy
 // Rule URLs are rewritten from https://host/path to http://127.0.0.1:<port>/<hostKey>/path.
 function startProxy() {
   const hosts = new Map(); // key -> origin
   const cache = new Map(); // method + url + body -> { status, headers, body }
   const injections = new Map(); // hostKey -> [{ jobsPath, item }]
+  const pages = new Map(); // page key -> Map(term -> rendered html)
+  const pageInjections = new Map(); // page key -> { itemSelector, fields, title, stamp }
   let mode = 'record';
   const server = http.createServer(async (req, res) => {
     const body = await new Promise((r) => {
@@ -38,6 +65,20 @@ function startProxy() {
       req.on('data', (x) => (d += x));
       req.on('end', () => r(d));
     });
+    // Recorded, fully rendered pages for Playwright rules: /page/<key>?q=<term>
+    if (req.url.startsWith('/page/')) {
+      const u = new URL(req.url, 'http://x');
+      const key = u.pathname.split('/')[2];
+      let html = pages.get(key)?.get(u.searchParams.get('q') || '');
+      if (!html) {
+        res.writeHead(404, { 'content-type': 'text/html' });
+        return res.end('<h1>not recorded</h1>');
+      }
+      const inj = pageInjections.get(key);
+      if (inj) html = injectCard(html, inj);
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    }
     const [, key, ...rest] = req.url.split('/');
     const origin = hosts.get(key);
     if (!origin) {
@@ -89,6 +130,15 @@ function startProxy() {
         replay() {
           mode = 'replay';
         },
+        /** Stores the rendered HTML of a real page for a Playwright rule (scripts removed so it stays static). */
+        recordPage(key, term, html) {
+          if (!pages.has(key)) pages.set(key, new Map());
+          pages.get(key).set(term, html.replace(/<script[\s\S]*?<\/script>/gi, ''));
+        },
+        injectPage(key, inj) {
+          pageInjections.set(key, inj);
+        },
+        pageCount: () => [...pages.values()].reduce((n, m) => n + m.size, 0),
         inject(key, jobsPath, item) {
           if (!injections.has(key)) injections.set(key, []);
           injections.get(key).push({ jobsPath, item });
@@ -148,6 +198,7 @@ const api = async (method, url, body) => {
 };
 
 let failures = 0;
+let browser;
 try {
   await api('PUT', '/api/settings/discord', { channels: [{ id: 'ch_jobs', name: 'jobs', webhookUrl: discord.webhookUrl('jobs') }, { id: 'ch_alerts', name: 'alerts', webhookUrl: discord.webhookUrl('alerts') }], jobsChannelId: 'ch_jobs', alertsChannelId: 'ch_alerts' });
   await api('PUT', '/api/settings/filters', settings.filters);
@@ -158,12 +209,33 @@ try {
   for (const co of companies) {
     const detail = await live('GET', `/api/companies/${co.id}`);
     const rule = detail.active_rule;
-    if (rule.type !== 'api' && rule.type !== 'html') {
-      console.log(`${c.d('–')} ${co.name}: active rule is ${rule.type}; replay supports api/html rules only, skipping`);
+    if (!['api', 'html', 'browser'].includes(rule.type)) {
+      console.log(`${c.d('–')} ${co.name}: active rule is ${rule.type}; replay supports api, html and browser rules, skipping`);
       continue;
     }
     const spec = structuredClone(rule.spec);
-    spec.url = proxy.rewrite(spec.url);
+    let pageKey = null;
+    if (rule.type === 'browser') {
+      // Record the real, fully rendered result page for each search term, then serve it locally.
+      pageKey = co.id;
+      const gotoIdx = spec.actions.findIndex((a) => a.do === 'goto');
+      const waitSel = spec.actions.find((a) => a.do === 'wait' && a.selector)?.selector || spec.item_selector;
+      const terms = spec.search?.mode === 'none' || !detail.search_terms.length ? [''] : spec.search.mode === 'combined' ? [detail.search_terms.join(spec.search.combine_with || ' OR ')] : detail.search_terms;
+      browser ??= await chromium.launch();
+      const page = await browser.newPage({ locale: 'en-US' });
+      for (const term of terms) {
+        const url = spec.actions[gotoIdx].url.replace(/\{\{\s*query\s*\}\}/g, encodeURIComponent(term));
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await page.locator(waitSel).first().waitFor({ timeout: 30000 });
+        await page.waitForTimeout(1500);
+        proxy.recordPage(pageKey, term, await page.content());
+      }
+      await page.close();
+      spec.actions[gotoIdx] = { ...spec.actions[gotoIdx], url: `${proxy.base}/page/${pageKey}?q={{query}}` };
+      spec.enrich_dates = 'off'; // no dates needed: "new" = first seen
+      delete spec.pagination;
+      delete spec.url_prefix;
+    } else spec.url = proxy.rewrite(spec.url);
     const { company } = await api('POST', '/api/companies', {
       name: co.name,
       careers_url: co.careers_url,
@@ -175,11 +247,13 @@ try {
     });
     // Record: the first rule run goes through the proxy to the real site.
     const saved = await api('POST', '/api/rules', { companyId: company.id, spec, activate: true, force: true, reason: 'replay test' });
-    plans.push({ co, company, spec, rule: saved.rule, hostKey: proxy.hostKey(rule.spec.url) });
-    console.log(`${c.g('✔')} ${co.name}: rule ${rule.id} copied as ${saved.rule.id}, responses recorded from ${new URL(rule.spec.url.replace(/\{\{\s*\w+\s*\}\}/g, 'x')).host}`);
+    plans.push({ co, company, spec, rule: saved.rule, kind: rule.type, pageKey, hostKey: rule.type === 'browser' ? null : proxy.hostKey(rule.spec.url) });
+    const realUrl = (rule.type === 'browser' ? rule.spec.actions.find((a) => a.do === 'goto').url : rule.spec.url).replace(/\{\{\s*\w+\s*\}\}/g, 'x');
+    const source = rule.type === 'browser' ? `real pages rendered in a browser from ${new URL(realUrl).host}` : `responses recorded from ${new URL(realUrl).host}`;
+    console.log(`${c.g('✔')} ${co.name}: ${rule.type} rule ${rule.id} copied as ${saved.rule.id}, ${source}`);
   }
   proxy.replay();
-  console.log(c.d(`   ${proxy.recorded()} real responses recorded; the replay is now offline`));
+  console.log(c.d(`   ${proxy.recorded()} API responses + ${proxy.pageCount()} rendered pages recorded; the replay is now offline`));
 
   const first = await api('POST', '/api/test/tick');
   for (const r of first.runs) console.log(`   baseline run: ${r.status}`);
@@ -190,6 +264,14 @@ try {
   // Inject a fake job cloned from the newest real job (same JSON shape and date format).
   const fakes = [];
   for (const p of plans) {
+    if (p.kind === 'browser') {
+      const stamp = Date.now().toString().slice(-9);
+      const title = `Software Engineer - Earlybird Test ${stamp}`;
+      proxy.injectPage(p.pageKey, { itemSelector: p.spec.item_selector, fields: p.spec.fields, title, stamp });
+      fakes.push({ company: p.co.name, title });
+      console.log(`   injected a fake job card at the top of ${p.co.name}'s page: "${title}"`);
+      continue;
+    }
     const template = proxy.sample(p.hostKey, p.spec.jobs_path, p.spec.fields.title);
     if (!template) {
       console.log(`${c.r('✖')} ${p.co.name}: could not read a recorded job to clone`);
@@ -232,6 +314,7 @@ try {
   console.error(c.r(`\nreplay test crashed: ${err.message}`));
   console.error(c.d(`app log: ${app.logFile}`));
 } finally {
+  if (browser) await browser.close();
   await app.dispose();
   await discord.close();
   await proxy.close();
