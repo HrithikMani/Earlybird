@@ -8,7 +8,7 @@ const FAILURE_KINDS = ['failing', 'blocked', 'zero_jobs', 'job_drop', 'fallback_
  * Updates a company's health after a run and raises/resolves alerts (code only, no LLM).
  * Returns the patch applied.
  */
-export async function updateHealthAfterRun(company, rule, { ok, error, jobCount, mode, onFallback }) {
+export async function updateHealthAfterRun(company, rule, { ok, error, jobCount, mode, onFallback, baseline = false, hitCap = false }) {
   const scheduling = getSettings('scheduling');
   const patch = {};
   const name = company.name;
@@ -75,7 +75,8 @@ export async function updateHealthAfterRun(company, rule, { ok, error, jobCount,
   }
   if (mode === 'full') {
     const prevFull = company.last_full_job_count;
-    if (prevFull && jobCount < prevFull * 0.2 && jobCount > 0) {
+    // A baseline (new rule) or a run that stopped at the job cap is not a real drop.
+    if (!baseline && !hitCap && prevFull && jobCount < prevFull * 0.2 && jobCount > 0) {
       status = 'degraded';
       note = `job count dropped ${prevFull} → ${jobCount} (−${Math.round((1 - jobCount / prevFull) * 100)}%)`;
       await raiseAlert({ companyId: company.id, ruleId: rule?.id, kind: 'job_drop', message: `${name}: ${note}.` });

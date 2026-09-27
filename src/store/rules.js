@@ -89,7 +89,8 @@ export function activateRule(ruleId, { keepOldAsFallback = false, approve = true
     db.update(R).set({ slot: 'active', updated_at: t, ...(approve && !rule.approved_at ? { approved_at: t } : {}) }).where(eq(R.id, ruleId)).run();
   });
   const status = ['paused'].includes(company.status) ? company.status : 'active';
-  return updateCompany(company.id, { active_rule_id: ruleId, status, using_fallback: false, consecutive_failures: 0, consecutive_zero_runs: 0, next_run_at: null, health_note: null });
+  // Job counts from a different rule aren't comparable: reset them so the drop/zero checks start fresh.
+  return updateCompany(company.id, { active_rule_id: ruleId, status, using_fallback: false, consecutive_failures: 0, consecutive_zero_runs: 0, next_run_at: null, health_note: null, last_job_count: null, last_full_job_count: null });
 }
 
 export function setFallback(ruleId) {

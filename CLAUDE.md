@@ -21,7 +21,7 @@ Earlybird watches company career portals and posts **new** job openings to Disco
 - **DB:** SQLite (`better-sqlite3`) via Drizzle ORM; migrations run automatically at startup. Keep it swappable for Postgres.
 - **Validation:** zod, the single source of truth for rules, agent outputs, settings.
 - **LLM:** Vercel AI SDK (`ai` + `@ai-sdk/anthropic`). **Any Claude model**, selected in Settings. The model dropdown is populated from the Anthropic Models API (`@anthropic-ai/sdk` → `client.models.list()`, cached 24h) with a free-text fallback.
-- **Agent tools:** `@playwright/mcp` (always on) connected through the AI SDK MCP client (stdio), our own custom tools (`run_rule`, `get_recent_jobs`, …), and any extra MCP servers added in Settings (command + args + env, enable/disable per agent). Extra MCP servers must work on Windows and macOS (use `npx`/`node` commands, not shell scripts).
+- **Agent tools:** `@playwright/mcp` (always on) connected through the AI SDK MCP client (stdio), our own custom tools (`run_rule`, `get_recent_jobs`, …), and any extra MCP servers added in Settings (command + args + env, enable/disable per agent). Extra MCP servers must work on Windows and macOS (use `npx`/`node` commands, not shell scripts). Agents never get `browser_run_code_unsafe`, `browser_file_upload` or `browser_drop`. Each MCP tool result is capped at 12k characters (the agent drills in with `browser_find` / `browser_network_request`), and requests use Anthropic prompt caching, because every step re-sends the growing history.
 - **Runner:** `fetch` for `api`/`html` rules, `cheerio` for HTML, `playwright` library for `browser` rules.
 - **Scheduling:** `croner` (in-process cron, `protect: true` to prevent overlap) + `p-limit` pools. No Redis.
 - **Server:** Fastify (REST + Server-Sent Events for live logs/task progress).
@@ -37,6 +37,7 @@ Earlybird watches company career portals and posts **new** job openings to Disco
 | `./setup.sh` (macOS/Linux) · `.\setup.ps1` (Windows) | First-time setup. Checks/installs Node, then runs `npm run setup`. See "Setup". |
 | `npm run setup` | Cross-platform setup (`node scripts/setup.mjs`). Safe to re-run. |
 | `npm run doctor` | Checks the environment (Node version, Chromium, DB, data dir, API key, webhooks) and prints what's missing and how to fix it. |
+| `npm run eb -- mcp check` | Checks the Playwright MCP server starts (run before discovery from GitHub Copilot / Claude Code). |
 | `npm run dev` | Preflight check, migrations, then API + scheduler + dashboard (Vite HMR) on `PORT` (default 3000), with `node --watch`. |
 | `npm run build` | Builds the dashboard into `web/dist`. |
 | `npm start` | Production: migrations + server + scheduler, serving `web/dist`. |
@@ -70,7 +71,7 @@ npm run dev         # then open http://localhost:3000
   1. Check Node version and OS/arch; print them.
   2. `npm ci` (or `npm install` if there's no lockfile).
   3. `npx playwright install chromium` (adds `--with-deps` on Linux only).
-  4. Verify `better-sqlite3` loads (prebuilt binaries exist for Windows/macOS/Linux; if it fails, print the fix: `npm rebuild better-sqlite3` plus build-tool hints per OS).
+  4. Verify `better-sqlite3` loads (pinned to v12, which ships prebuilt binaries; v13+ compiles from source and needs Python + C++ build tools) (prebuilt binaries exist for Windows/macOS/Linux; if it fails, print the fix: `npm rebuild better-sqlite3` plus build-tool hints per OS).
   5. Create `data/`, `data/logs/`, `data/artifacts/`; create `.env` from `.env.example` if missing.
   6. Run DB migrations.
   7. Optional interactive questions (skip with `--yes`): Anthropic API key, Discord jobs + alerts webhooks, first roles to track. Saved into the settings table; everything can be changed later in the dashboard.
@@ -392,7 +393,9 @@ Registered with `croner` at boot. Schedules come from Settings and are re-regist
 
 - A job not present in a **full sweep** gets `missing_sweeps + 1`; at 2 it's marked `closed_at` (posting taken down). Seen again → reopened.
 - Closed jobs are deleted after `closed_job_retention_days` (default 3).
-- Any job older than `max_job_age_days` (default 30, by `first_seen_at`) is deleted.
+- **Job age window** (Settings → Filters `maxJobAgeDays`, default **7 days**, per-company override): jobs posted earlier are never listed, shown or sent. They are only recorded in `seen_jobs`. Cleanup also removes listings that age out.
+- **Job cap** (`maxJobsPerCompany`, default **100**): rules read at most the newest 100 jobs per run (pagination stops early) and cleanup keeps only each company's newest 100 listings. Beyond the newest ~100 postings nothing is relevant to "new jobs".
+- Listings first seen more than `keepJobsDays` (default 30) ago are deleted.
 - Deleted jobs stay in `seen_jobs`, so they're never re-notified (see "Seen jobs").
 - Fast sweeps never close jobs (they only see page 1).
 
@@ -432,7 +435,7 @@ A job is sent to Discord only if **all** hold, otherwise it's stored with a `not
 | Not part of a baseline (first run of a company, new rule activation, new role term) | `baseline` |
 | Title matches an effective role (unless `all_jobs`) | `role_mismatch` |
 | Passes exclude keywords + location filters | `filtered` |
-| `posted_at` (if known) is within `max_notify_age_hours` (default 72) | `too_old` |
+| `posted_at` (if known) is within the job age window (`maxJobAgeDays`) | `too_old` (not listed at all) |
 
 - **Reposts:** a job that reappears after being closed isn't re-sent. `renotify_reposted_after_days` (default off) can allow it.
 - **New role terms get a silent baseline:** when a role is added, the first run with the new term records its results as seen without notifying. Otherwise adding "DevOps Engineer" would flood Discord with every existing DevOps job. Toggle per role: "notify existing matches once".
@@ -470,12 +473,13 @@ Every discovery, verification and manual "Run now" is a **task**. Scheduled scra
 - **Kill:** Stop, plus force-close the Playwright browser/MCP process after a 5s grace. Status becomes `killed`.
 - **Retry:** creates a new task (`parent_task_id`, `attempt + 1`) with the same input and an optional operator note appended to the prompt (e.g. "the jobs are behind the 'Engineering' tab").
 - **Guards** (all configurable in Settings) stop runaway agent loops:
-  - `max_steps` (default 40)
+  - `max_steps` (default 60). Two steps before the limit the agent's tools are removed and it must commit the rules it has already tested.
   - `max_wall_time_min` (default 10)
-  - `max_cost_usd` per task (default 1.00, from token usage × the model price table in Settings)
-  - **loop detection:** the same tool called with identical args 3 times, or no new tool/URL for 8 steps → abort with `error_type = loop_detected`
+  - `max_cost_usd` per task (default **$2**, from token usage × the model price table; cache reads are priced at 0.1×)
+  - **loop detection:** the same tool called with identical input **and an identical result** 3 times (re-checking a page that changed is progress), or no new tool calls for 8 steps → abort with `error_type = loop_detected`
   - `max_attempts` for discovery retries (default 3)
 - A guard trip is logged as a `guard` event with the reason, so "why did it stop" is always answered.
+- **Diagnostics for prompt tuning:** every agent step is logged (`scope = task`) with its phase, tools, tokens and cost, and every failed tool call (MCP `isError`, `run_rule` errors, invalid tool input) is logged as a warning. The task stores `result.diagnostics` (cost/steps/failed calls per phase + totals), the task page shows a Diagnostics card and "Took 5m 24s · 29 steps · $0.61", and `GET /api/tasks/:id/transcript` downloads the full event log as JSON.
 
 ## Logging
 
@@ -550,8 +554,8 @@ Every feature is covered by Playwright end-to-end tests that drive the **real ap
 - **MCP tools:** Playwright MCP options (headless, browser), extra MCP servers (name, command, args, env), each toggled per agent (discovery / verification), with a "Test connection" button that lists the server's tools.
 - **Discord:** named channels (webhook URLs) with a "Send test" button; default jobs channel, alerts channel, per-company channel override, embed batch size.
 - **Scheduling:** default interval, minimum intervals (api/html 10 min, browser 15 min), full-sweep interval, jitter, pool sizes.
-- **Filters:** global exclude keywords and locations (per-company overrides on the company page). Roles + filters only decide what gets **notified**; all fetched jobs are stored.
-- **Dedupe & notify:** `max_notify_age_hours`, `renotify_reposted_after_days`, tracking params stripped from URLs, "Resend" button per job (manual only).
+- **Filters:** job age window (`maxJobAgeDays`, default 7), max jobs per company (`maxJobsPerCompany`, default 100), global exclude keywords and locations (per-company overrides on the company page). Roles, keywords and locations decide what gets **notified**; jobs inside the age window and cap are stored.
+- **Dedupe & notify:** `renotify_reposted_after_days`, tracking params stripped from URLs, "Resend" button per job (manual only).
 - **Retention:** closed jobs, max job age, seen jobs (`seen_retention_days`), runs, logs, task events, artifacts.
 - **Logging:** level, save Playwright traces on failure.
 - **Scraping:** user agent, respect robots.txt.

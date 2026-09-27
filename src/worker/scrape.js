@@ -83,7 +83,7 @@ export async function executeRun(companyId, { mode, trigger = 'schedule', ruleId
     updateCompany(company.id, companyPatch);
     if (meta.invalid_count) log.warn({ invalid: meta.invalid_count, samples: meta.invalid_samples }, 'some jobs failed validation and were skipped');
     log.info({ ...runStats, per_query: undefined, duration_ms: duration, requests_detail: meta.requests.slice(0, 50) }, `run ok: ${jobs.length} jobs, ${stats.new} new, ${stats.queued} to notify${baseline ? ' (baseline)' : ''}`);
-    await updateHealthAfterRun(getCompany(company.id), rule, { ok: true, jobCount: jobs.length, mode: runMode, onFallback });
+    await updateHealthAfterRun(getCompany(company.id), rule, { ok: true, jobCount: jobs.length, mode: runMode, onFallback, baseline, hitCap: !!meta.hit_cap });
   } catch (err) {
     const duration = now() - startedAt;
     const cancelled = err.type === 'Cancelled' || reg.signal.aborted;

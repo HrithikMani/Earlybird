@@ -70,6 +70,23 @@ test.describe('failures, alerts and fallback', () => {
     expect((await alertTitles(discordInbox)).some((t) => t.includes('zero jobs'))).toBe(true);
   });
 
+  test('a new rule or the job cap returning fewer jobs is not a "job drop"', async ({ api, mocks, mockPortal, discordInbox }) => {
+    await configureDiscord(api, discordInbox);
+    const { company: c } = await seedCompany(api, mocks.portal.url, { kind: 'gh', role_mode: 'all_jobs' });
+    await api.tick(); // 25 jobs
+    await api.put('/api/settings/filters', { maxJobsPerCompany: 5 });
+    await nextTick(api, 61); // full sweep stops at the cap: 5 jobs
+    expect((await company(api, c.id)).status).toBe('active');
+    await api.put('/api/settings/filters', { maxJobsPerCompany: 100 });
+    await mockPortal.board('acme', { seed: 3 });
+    const { rule } = await api.post('/api/rules', { companyId: c.id, spec: (await import('../fixtures/seed.js')).ruleFor('gh', mocks.portal.url), activate: true, force: true, reason: 'new rule' });
+    await nextTick(api, 61); // baseline of the new rule: 3 jobs
+    const after = await company(api, c.id);
+    expect(after.active_rule_id).toBe(rule.id);
+    expect(after.status).toBe('active');
+    expect((await alertTitles(discordInbox)).some((t) => t.includes('job drop'))).toBe(false);
+  });
+
   test('a broken browser rule stores a screenshot and the failing step', async ({ api, mocks, mockPortal, page }) => {
     await api.post('/api/roles', { name: 'Engineer', scope: 'global' });
     const { company: c } = await seedCompany(api, mocks.portal.url, { kind: 'spa' });
