@@ -1,0 +1,7 @@
+{
+  "description": "Always answers with a rule whose selector matches nothing, so validation fails every attempt.",
+  "steps": [
+    { "toolCalls": [{ "name": "report_phase", "input": { "phase": "explore", "note": "Loading page" } }] },
+    { "final": { "candidates": [{ "strategy": "url", "rule": { "type": "html", "url": "{{portal}}/html/acme", "item_selector": "div.does-not-exist", "fields": { "title": "a", "url": "a@href" } } }], "evidence": { "visible_job_count": 25, "newest_titles": ["Senior Software Engineer"] } } }
+  ]
+}

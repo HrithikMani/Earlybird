@@ -1,0 +1,7 @@
+{
+  "description": "Verification: the rule misses a recent job.",
+  "steps": [
+    { "toolCalls": [{ "name": "run_rule", "input": { "rule_id": "{{rule_id}}", "mode": "fast" } }] },
+    { "final": { "verdict": "missing_recent", "window": "{{window}}", "portal_recent_jobs": [{ "title": "Quantum Engineer" }], "missing": [{ "title": "Quantum Engineer", "reason": "only on page 2 because the rule does not sort by newest" }], "suggested_action": "rerun_discovery", "notes": "The newest job is missing." } }
+  ]
+}

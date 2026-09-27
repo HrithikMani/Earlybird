@@ -1,0 +1,8 @@
+{
+  "description": "First answer fails validation; after feedback the agent fixes the selector.",
+  "steps": [
+    { "final": { "candidates": [{ "strategy": "url", "rule": { "type": "html", "url": "{{portal}}/html/acme", "item_selector": "li.jobz", "fields": { "title": "a", "url": "a@href" } } }], "evidence": { "visible_job_count": 25 } } },
+    { "text": "The selector was wrong; fixing it.", "toolCalls": [{ "name": "run_rule", "input": { "rule": { "type": "html", "url": "{{portal}}/html/acme", "item_selector": "li.job", "pagination": { "kind": "page", "param": "page", "page_size": 10 }, "fields": { "id": "@data-job-id", "title": "a.job-title", "url": "a.job-title@href", "posted_at": "time@datetime" } } } }] },
+    { "final": { "candidates": [{ "strategy": "url", "rule": { "type": "html", "url": "{{portal}}/html/acme", "item_selector": "li.job", "pagination": { "kind": "page", "param": "page", "page_size": 10 }, "fields": { "id": "@data-job-id", "title": "a.job-title", "url": "a.job-title@href", "location": ".loc", "posted_at": "time@datetime" } } }], "evidence": { "visible_job_count": 25, "newest_titles": ["Senior Software Engineer", "DevOps Engineer"] } } }
+  ]
+}

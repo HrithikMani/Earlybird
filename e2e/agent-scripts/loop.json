@@ -1,0 +1,6 @@
+{
+  "description": "Calls the same tool with identical input forever (loop detection must stop it).",
+  "steps": [
+    { "repeat": 50, "toolCalls": [{ "name": "run_rule", "input": { "rule": { "type": "html", "url": "{{portal}}/html/acme", "item_selector": "li.job", "fields": { "title": "a.job-title", "url": "a.job-title@href" } } } }] }
+  ]
+}

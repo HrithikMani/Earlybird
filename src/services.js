@@ -34,8 +34,9 @@ export async function startServices(_app) {
   testHooks.tick = tick;
   testHooks.drainOutbox = drainOutbox;
   testHooks.cleanup = async () => runCleanup();
-  const { startTaskQueue } = await import('./tasks/queue.js').catch(() => ({}));
-  if (startTaskQueue) startTaskQueue();
+  const { startTaskQueue, drainTasks } = await import('./tasks/queue.js');
+  startTaskQueue();
+  testHooks.drainTasks = () => drainTasks({ wait: true });
 }
 
 export async function stopServices() {

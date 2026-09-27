@@ -1,0 +1,7 @@
+{
+  "description": "Each step takes a long time (for Stop / Kill tests).",
+  "steps": [
+    { "toolCalls": [{ "name": "report_phase", "input": { "phase": "explore", "note": "thinking slowly" } }] },
+    { "delayMs": 120000, "repeat": 10, "text": "still thinking" }
+  ]
+}

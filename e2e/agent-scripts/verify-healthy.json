@@ -1,0 +1,7 @@
+{
+  "description": "Verification: portal and rule agree.",
+  "steps": [
+    { "toolCalls": [{ "name": "browser_navigate", "input": { "url": "{{careers_url}}" } }, { "name": "run_rule", "input": { "rule_id": "{{rule_id}}", "mode": "fast" } }, { "name": "get_recent_jobs", "input": { "window": "{{window}}" } }] },
+    { "final": { "verdict": "healthy", "window": "{{window}}", "portal_recent_jobs": [{ "title": "Senior Software Engineer" }], "rule_recent_jobs": [{ "title": "Senior Software Engineer" }], "missing": [], "suggested_action": "none", "notes": "Every recent portal job is returned by the rule." } }
+  ]
+}

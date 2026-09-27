@@ -1,0 +1,10 @@
+{
+  "description": "Burns tokens quickly (cost guard). Each step uses different input so loop detection does not fire first.",
+  "steps": [
+    { "inputTokens": 400000, "outputTokens": 20000, "toolCalls": [{ "name": "report_phase", "input": { "phase": "explore", "note": "step 1" } }] },
+    { "inputTokens": 400000, "outputTokens": 20000, "toolCalls": [{ "name": "report_phase", "input": { "phase": "analyze", "note": "step 2" } }] },
+    { "inputTokens": 400000, "outputTokens": 20000, "toolCalls": [{ "name": "report_phase", "input": { "phase": "build", "note": "step 3" } }] },
+    { "inputTokens": 400000, "outputTokens": 20000, "toolCalls": [{ "name": "report_phase", "input": { "phase": "test", "note": "step 4" } }] },
+    { "inputTokens": 400000, "outputTokens": 20000, "toolCalls": [{ "name": "report_phase", "input": { "phase": "commit", "note": "step 5" } }] }
+  ]
+}

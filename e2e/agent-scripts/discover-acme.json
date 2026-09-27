@@ -1,0 +1,19 @@
+{
+  "description": "Happy path: explores the portal, tests a URL rule and a Playwright rule, commits both.",
+  "steps": [
+    { "text": "Opening the careers page.", "toolCalls": [{ "name": "report_phase", "input": { "phase": "explore", "note": "Loading {{careers_url}}" } }, { "name": "browser_navigate", "input": { "url": "{{careers_url}}" } }] },
+    { "toolCalls": [{ "name": "report_phase", "input": { "phase": "analyze", "note": "Listings come from /api/acme/search (q, sort=newest, offset/limit). The SPA at /spa/acme has a search box, a Newest sort and Load more." } }] },
+    { "toolCalls": [{ "name": "report_phase", "input": { "phase": "build", "note": "URL rule on the search API; Playwright rule on the SPA" } }, { "name": "run_rule", "input": { "rule": { "type": "api", "url": "{{portal}}/api/acme/search?q={{query}}&sort=newest", "jobs_path": "results", "url_prefix": "{{portal}}", "pagination": { "kind": "offset", "param": "offset", "size_param": "limit", "page_size": 10 }, "search": { "mode": "per_term" }, "sorted_newest_first": true, "fields": { "id": "reqId", "title": "name", "url": "path", "location": "office", "posted_at": "publishedAt" } } } }] },
+    { "toolCalls": [{ "name": "report_phase", "input": { "phase": "test", "note": "URL rule returns the newest jobs; testing the Playwright rule" } }, { "name": "run_rule", "input": { "rule": { "type": "browser", "item_selector": ".card", "search": { "mode": "per_term" }, "sorted_newest_first": true, "actions": [{ "do": "goto", "url": "{{portal}}/spa/acme" }, { "do": "wait", "selector": ".card" }, { "do": "fill", "selector": "#search", "value": "{{query}}" }, { "do": "select", "selector": "#sort", "value": "newest" }, { "do": "click", "selector": "#more", "repeat_until_gone": true }, { "do": "extract" }], "fields": { "id": "@data-id", "title": "h3 a", "url": "h3 a@href", "location": ".location", "posted_at": ".posted" } } } }] },
+    { "toolCalls": [{ "name": "report_phase", "input": { "phase": "commit", "note": "Both rules return the newest jobs" } }] },
+    {
+      "final": {
+        "candidates": [
+          { "strategy": "url", "notes": "hidden JSON search API with sort=newest", "rule": { "type": "api", "url": "{{portal}}/api/acme/search?q={{query}}&sort=newest", "jobs_path": "results", "url_prefix": "{{portal}}", "pagination": { "kind": "offset", "param": "offset", "size_param": "limit", "page_size": 10 }, "search": { "mode": "per_term" }, "sorted_newest_first": true, "fast_max_pages": 1, "fields": { "id": "reqId", "title": "name", "url": "path", "location": "office", "posted_at": "publishedAt" } } },
+          { "strategy": "playwright", "notes": "SPA search box + Newest sort + Load more", "rule": { "type": "browser", "item_selector": ".card", "search": { "mode": "per_term" }, "sorted_newest_first": true, "fast_max_pages": 1, "actions": [{ "do": "goto", "url": "{{portal}}/spa/acme" }, { "do": "wait", "selector": ".card" }, { "do": "fill", "selector": "#search", "value": "{{query}}" }, { "do": "select", "selector": "#sort", "value": "newest" }, { "do": "click", "selector": "#more", "repeat_until_gone": true }, { "do": "extract" }], "fields": { "id": "@data-id", "title": "h3 a", "url": "h3 a@href", "location": ".location", "posted_at": ".posted" } } }
+        ],
+        "evidence": { "ats_detected": "none", "source_request": "{{portal}}/api/acme/search", "site_supports_sort_newest": true, "how_to_get_newest": "sort=newest query param; first page holds the newest jobs", "visible_job_count": 25, "newest_titles": ["Senior Software Engineer", "DevOps Engineer", "Product Designer"], "example_titles": ["Data Scientist"] }
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Portal needs a token handshake, so the agent writes a script rule.",
+  "steps": [
+    {
+      "final": {
+        "candidates": [
+          {
+            "strategy": "script",
+            "notes": "session token handshake",
+            "rule": { "type": "script", "search": { "mode": "per_term" }, "sorted_newest_first": true },
+            "code": "export default async function fetchJobs({ terms, fetch, log }) {\n  const base = '{{portal}}/token/acme';\n  const { token } = await (await fetch(base + '/session')).json();\n  const out = [];\n  for (const q of (terms.length ? terms : [''])) {\n    const d = await (await fetch(base + '/jobs?q=' + encodeURIComponent(q), { headers: { 'x-session-token': token } })).json();\n    log.info('fetched', { q, n: d.data.items.length });\n    for (const it of d.data.items) out.push({ external_id: it.key, title: it.label, url: '{{portal}}' + it.link, location: it.where, posted_at: it.ts, search_term: q || undefined });\n  }\n  return out;\n}\n"
+          }
+        ],
+        "evidence": { "visible_job_count": 25, "newest_titles": ["Senior Software Engineer"] }
+      }
+    }
+  ]
+}
