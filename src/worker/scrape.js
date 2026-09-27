@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
-import { getDb, newId, schema } from '../db/index.js';
+import { getDb, getSqlite, newId, schema } from '../db/index.js';
+import { enrichPostedDates } from '../runner/enrich.js';
+import { canonicalUrl } from './dedupe.js';
 import { runRule } from '../runner/index.js';
 import { getSettings } from '../settings/index.js';
 import { childLogger, errorDetail } from '../log/logger.js';
@@ -33,6 +35,42 @@ export function runnerOptions({ signal, log, artifactsDir } = {}) {
     maxTerms: getSettings('roles').maxTermsPerRun,
     maxJobs: getSettings('filters').maxJobsPerCompany,
   };
+}
+
+/**
+ * Lists without dates (e.g. Meta): read datePosted from the detail pages of jobs we don't have a date for yet:
+ * new jobs first, then a small backfill of existing listings. Dates make the age window and "Posted" work.
+ */
+async function enrichMissingDates({ company, rule, jobs, meta, baseline, signal, log }) {
+  if (rule.spec.enrich_dates === 'off') return;
+  const missing = jobs.filter((j) => !j.posted_at);
+  if (!missing.length || missing.length < jobs.length * 0.5) return; // the list has dates for most jobs
+  // Jobs whose date we already know, listed or not (seen_jobs remembers dates of too-old jobs too).
+  const known = new Map(
+    getSqlite()
+      .prepare('select canonical_url, posted_at from seen_jobs where company_id = ? and posted_at is not null union select canonical_url, posted_at from jobs where company_id = ? and posted_at is not null')
+      .all(company.id, company.id)
+      .map((r) => [r.canonical_url, r.posted_at]),
+  );
+  const tracking = getSettings('dedupe').trackingParams;
+  // Re-use remembered dates; only unknown jobs need their detail page.
+  for (const j of missing) {
+    const p = known.get(canonicalUrl(j.url, tracking));
+    if (p) {
+      j.posted_at = p;
+      j.posted_at_raw = 'datePosted (remembered from detail page)';
+    }
+  }
+  const scraping = getSettings('scraping');
+  await enrichPostedDates(jobs, {
+    needs: (j) => !known.has(canonicalUrl(j.url, tracking)),
+    limit: baseline ? 40 : 15,
+    signal,
+    userAgent: scraping.userAgent,
+    timeoutMs: scraping.actionTimeoutMs,
+    log,
+    meta,
+  });
 }
 
 export function chooseMode(company) {
@@ -69,9 +107,10 @@ export async function executeRun(companyId, { mode, trigger = 'schedule', ruleId
   try {
     const opts = runnerOptions({ signal: reg.signal, log, artifactsDir: path.join(config.paths.artifacts, runId) });
     const { jobs, meta } = await runRule(rule.spec, { ...opts, mode: runMode, terms, scriptPath: ensureScriptFile(rule) });
+    await enrichMissingDates({ company, rule, jobs, meta, baseline, signal: reg.signal, log });
     const stats = ingestJobs({ company, rule, jobs, mode: runMode, baseline, queries: meta.queries || (meta.terms_capped ? [''] : terms.length ? terms : ['']), capped: meta.terms_capped, roles });
     const duration = now() - startedAt;
-    const runStats = { ...stats, pages: meta.pages, requests: meta.requests.length, invalid: meta.invalid_count, per_query: meta.per_query, terms_capped: meta.terms_capped };
+    const runStats = { ...stats, enrich: meta.enrich, pages: meta.pages, requests: meta.requests.length, invalid: meta.invalid_count, per_query: meta.per_query, terms_capped: meta.terms_capped };
     getDb()
       .update(RUNS)
       .set({ status: 'ok', duration_ms: duration, http_status: meta.last_status ?? null, job_count: jobs.length, new_job_count: stats.new, notified_count: stats.queued, closed_job_count: stats.closed, stats: runStats, artifacts: meta.artifacts ?? null })

@@ -36,9 +36,9 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
     insertJob: db.prepare(`insert into jobs (id, company_id, rule_id, job_key, external_id, canonical_url, fingerprint, title, url, location, department, posted_at, posted_at_raw,
       matched_roles, search_term, first_seen_at, last_seen_at, seen_count, missing_sweeps, closed_at, notify_status, notify_skip_reason)
       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, null, ?, ?)`),
-    insertSeen: db.prepare(`insert into seen_jobs (company_id, job_key, external_id, canonical_url, fingerprint, aliases, title, first_seen_at, last_seen_at, first_rule_id, notified_at)
-      values (?, ?, ?, ?, ?, null, ?, ?, ?, ?, null)`),
-    touchSeen: db.prepare('update seen_jobs set last_seen_at = ? where company_id = ? and job_key = ?'),
+    insertSeen: db.prepare(`insert into seen_jobs (company_id, job_key, external_id, canonical_url, fingerprint, aliases, title, first_seen_at, last_seen_at, first_rule_id, notified_at, posted_at)
+      values (?, ?, ?, ?, ?, null, ?, ?, ?, ?, null, ?)`),
+    touchSeen: db.prepare('update seen_jobs set last_seen_at = ?, posted_at = coalesce(?, posted_at) where company_id = ? and job_key = ?'),
     aliasSeen: db.prepare('update seen_jobs set aliases = ?, last_seen_at = ? where company_id = ? and job_key = ?'),
     insertNotif: db.prepare(`insert or ignore into notifications (id, company_id, job_key, job_id, channel_id, kind, status, attempts, created_at)
       values (?, ?, ?, ?, ?, 'job', 'pending', 0, ?)`),
@@ -67,8 +67,8 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
         const old = q.listingByKey.get(company.id, keys.job_key);
         if (old) q.deleteListing.run(old.id);
         const seenOld = q.seenByKey.get(company.id, keys.job_key);
-        if (seenOld) q.touchSeen.run(t, company.id, keys.job_key);
-        else q.insertSeen.run(company.id, keys.job_key, job.external_id ?? null, keys.canonical_url, keys.fingerprint, job.title, t, t, rule.id);
+        if (seenOld) q.touchSeen.run(t, job.posted_at ?? null, company.id, keys.job_key);
+        else q.insertSeen.run(company.id, keys.job_key, job.external_id ?? null, keys.canonical_url, keys.fingerprint, job.title, t, t, rule.id, job.posted_at ?? null);
         skip(tooOld ? 'too_old' : 'other_location');
         continue;
       }
@@ -81,7 +81,7 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
         if (listing.closed_at) stats.reopened++;
         if (listing.job_key !== keys.job_key) stats.rekeyed++;
         q.refresh.run(t, rule.id, job.title, job.url, keys.canonical_url, job.location ?? null, job.department ?? null, job.posted_at ?? null, job.posted_at_raw ?? null, matchedJson, listing.id);
-        q.touchSeen.run(t, company.id, listing.job_key);
+        q.touchSeen.run(t, job.posted_at ?? null, company.id, listing.job_key);
         stats.refreshed++;
         continue;
       }
@@ -113,10 +113,10 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
       q.insertJob.run(jobId, company.id, rule.id, jobKey, job.external_id ?? null, keys.canonical_url, keys.fingerprint, job.title, job.url, job.location ?? null, job.department ?? null,
         job.posted_at ?? null, job.posted_at_raw ?? null, matchedJson, job.search_term ?? null, t, t, reason ? 'skipped' : 'pending', reason);
       if (seen) {
-        q.touchSeen.run(t, company.id, seen.job_key);
+        q.touchSeen.run(t, job.posted_at ?? null, company.id, seen.job_key);
         stats.already_seen++;
       } else {
-        q.insertSeen.run(company.id, jobKey, job.external_id ?? null, keys.canonical_url, keys.fingerprint, job.title, t, t, rule.id);
+        q.insertSeen.run(company.id, jobKey, job.external_id ?? null, keys.canonical_url, keys.fingerprint, job.title, t, t, rule.id, job.posted_at ?? null);
         stats.new++;
       }
       if (reason) skip(reason);

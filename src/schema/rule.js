@@ -36,6 +36,8 @@ const Common = {
   id_from_url: z.string().optional(),
   posted_at_format: z.enum(['relative', 'iso', 'custom', 'auto']).default('auto'),
   posted_at_pattern: z.string().optional(),
+  // When the list has no posted dates, read datePosted (JSON-LD) from the detail pages of new jobs. 'off' disables.
+  enrich_dates: z.enum(['auto', 'off']).default('auto'),
   url_prefix: z.string().url().optional(),
 };
 

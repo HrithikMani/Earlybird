@@ -71,6 +71,9 @@ function countryKey(wanted) {
 
 /** True when a job location matches one wanted location (country aliases and US state codes understood). */
 export function locationMatches(location, wanted) {
+  // Several locations in one string ("Sunnyvale, CA ⋅ Bellevue, WA ⋅ +4 more"): any of them may match.
+  const segments = String(location).split(/\s*(?:[⋅•·;|]|\s\/\s|\+\d+\s+more)\s*/).filter((s) => s.trim());
+  if (segments.length > 1) return segments.some((s) => locationMatches(s, wanted));
   const loc = normalizeText(location);
   const key = countryKey(wanted);
   if (!key) return phraseIn(loc, wanted); // a city, region or "Remote": plain word match

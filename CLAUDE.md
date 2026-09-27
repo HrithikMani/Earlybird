@@ -395,6 +395,7 @@ Registered with `croner` at boot. Schedules come from Settings and are re-regist
 - Closed jobs are deleted after `closed_job_retention_days` (default 3).
 - **Job age window** (Settings → Filters `maxJobAgeDays`, default **7 days**, per-company override): jobs posted earlier are never listed, shown or sent. They are only recorded in `seen_jobs`. Cleanup also removes listings that age out.
 - **Job cap** (`maxJobsPerCompany`, default **100**): rules read at most the newest 100 jobs per run (pagination stops early) and cleanup keeps only each company's newest 100 listings. Beyond the newest ~100 postings nothing is relevant to "new jobs".
+- **Dates from detail pages:** when a rule's list has no posted dates (e.g. Meta), the worker reads `datePosted` from the JSON-LD on the detail page of each job it doesn't know yet: plain HTTP first, then the browser if HTTP is blocked, at most 15 per run (40 on a baseline). The date is stored in `seen_jobs.posted_at`, so each detail page is read at most once. A rule can opt out with `"enrich_dates": "off"`.
 - Listings first seen more than `keepJobsDays` (default 30) ago are deleted.
 - Deleted jobs stay in `seen_jobs`, so they're never re-notified (see "Seen jobs").
 - Fast sweeps never close jobs (they only see page 1).

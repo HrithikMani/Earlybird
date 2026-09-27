@@ -72,7 +72,8 @@ Answer with the JSON below. Earlybird re-validates in code (two full runs and on
   - `combined`: terms joined with `combine_with`
   - `none`: the portal can't search; Earlybird matches titles itself
 - **Stable ids:** `fields.id`, or `id_from_url` (a regex with one capture group, e.g. `"/jobs/(\\d+)"`).
-- **Posted date:** map `fields.posted_at` when the portal shows it, and set `posted_at_format` (`iso`, `relative`, `auto`). If the site shows no dates, say so. Newest-first order is then what matters.
+- **Location:** map `fields.location` whenever the job card shows one (e.g. the first `span` under the title). Earlybird needs it for the location filter.
+- **Posted date:** map `fields.posted_at` when the portal shows it, and set `posted_at_format` (`iso`, `relative`, `auto`). If the list shows no dates, don't hunt for them: Earlybird reads `datePosted` (JSON-LD) from the detail page of each new job automatically. Just make sure `url` points to the job's own page.
 - **Selectors:** CSS. `"a.title"` reads text, `"a.title@href"` reads an attribute, `"@data-id"` reads an attribute of the item itself. Prefer data attributes, ARIA roles and stable class names over generated ones.
 - **Browser actions:** only `goto`, `wait`, `click`, `fill`, `select`, `scroll` and `extract`, ending with `extract`.
 - **Script rules** export `default async function fetchJobs({ terms, mode, signal, fetch, cheerio, page, log })` and return `[{ external_id, title, url, location, department, posted_at, search_term }]`. `log` is an object: use `log.info(msg, data)`. They run in a sandbox with network access but no file system.

@@ -141,6 +141,7 @@ export const seenJobs = sqliteTable(
     last_seen_at: ts('last_seen_at').notNull(),
     first_rule_id: text('first_rule_id'),
     notified_at: ts('notified_at'),
+    posted_at: ts('posted_at'), // remembered so detail pages are read at most once per job
   },
   (t) => [
     primaryKey({ columns: [t.company_id, t.job_key] }),

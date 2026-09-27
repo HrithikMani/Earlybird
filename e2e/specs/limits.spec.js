@@ -73,6 +73,37 @@ test.describe('job cap, age window and AI diagnostics', () => {
     expect(seen.rows[0].n).toBeGreaterThanOrEqual(25); // still remembered, never re-sent
   });
 
+  test('lists without dates get datePosted from the job detail pages (new jobs only), so the age window works', async ({ api, mocks, mockPortal, discordInbox }) => {
+    const { configureDiscord } = await import('../fixtures/index.js');
+    await configureDiscord(api, discordInbox);
+    const noDates = { fields: { id: '@data-job-id', title: 'a.job-title', url: 'a.job-title@href', location: '.loc' } };
+    const { company } = await seedCompany(api, mocks.portal.url, { kind: 'html', role_mode: 'all_jobs', rule: noDates });
+    await api.tick();
+    const listed = (await api.get(`/api/jobs?company_id=${company.id}&limit=500`)).items;
+    expect(listed.length).toBeGreaterThan(20);
+    expect(listed.every((j) => j.posted_at && j.posted_at_raw.includes('detail page'))).toBe(true);
+    const baseline = (await api.get(`/api/companies/${company.id}/runs`)).items[0];
+    expect(baseline.stats.enrich.found).toBe(baseline.stats.enrich.tried);
+
+    // A "new" job whose detail page says it was posted 30 days ago: remembered, never listed or sent.
+    await mockPortal.addJob('acme', { id: 'old30', title: 'Legacy Systems Engineer', posted_at: Date.now() - 30 * 86400000 });
+    await mockPortal.addJob('acme', { id: 'new1', title: 'Fresh Systems Engineer' });
+    await api.advanceClock(11 * 60000);
+    await api.tick();
+    const run = (await api.get(`/api/companies/${company.id}/runs`)).items[0];
+    expect(run.stats.enrich.tried).toBe(2); // only the two unseen jobs were fetched
+    expect(run.stats.skipped.too_old).toBe(1);
+    expect((await discordInbox.embeds()).filter((e) => e.webhook === 'jobs').map((e) => e.title)).toEqual(['Fresh Systems Engineer']);
+
+    // Next run: every date is remembered (even for the too-old job), so no detail page is opened again
+    // and the old job still isn't listed.
+    await api.advanceClock(11 * 60000);
+    await api.tick();
+    const again = (await api.get(`/api/companies/${company.id}/runs`)).items[0];
+    expect(again.stats.enrich).toBeUndefined();
+    expect((await api.get(`/api/jobs?company_id=${company.id}&limit=500`)).items.some((j) => j.external_id === 'old30')).toBe(false);
+  });
+
   test('a per-company age window overrides the global one', async ({ api, mocks }) => {
     const { company } = await seedCompany(api, mocks.portal.url, { kind: 'gh', role_mode: 'all_jobs', companyExtra: { notify_filters: { maxJobAgeDays: 1 } } });
     await api.tick();

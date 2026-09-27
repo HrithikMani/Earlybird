@@ -1,0 +1,1 @@
+ALTER TABLE `seen_jobs` ADD `posted_at` integer;

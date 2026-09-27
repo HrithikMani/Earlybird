@@ -147,7 +147,8 @@ export async function startMockPortal(port = 0) {
 
     if (kind === 'job') {
       const j = b.jobs.find((x) => x.id === rest.slice(1));
-      return j ? html(200, `<h1>${esc(j.title)}</h1><p>${esc(j.location)}</p>`) : html(404, 'gone');
+      const ld = JSON.stringify({ "@context": "http://schema.org/", "@type": "JobPosting", title: j?.title, datePosted: j ? new Date(j.posted_at).toISOString() : undefined });
+      return j ? html(200, `<html><head><script type="application/ld+json">${ld}</script></head><body><h1>${esc(j.title)}</h1><p>${esc(j.location)}</p></body></html>`) : html(404, 'gone');
     }
 
     if (kind === 'gh') {
