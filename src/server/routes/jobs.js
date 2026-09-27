@@ -2,6 +2,16 @@ import { getSqlite, newId } from '../../db/index.js';
 import { getSettings } from '../../settings/index.js';
 import { drainOutbox, sendTestMessage } from '../../notify/discord.js';
 
+// Whitelisted ORDER BY clauses (never interpolate user input into SQL). Jobs without a posted date go last.
+const SORTS = {
+  posted: 'j.posted_at is null, j.posted_at desc, j.first_seen_at desc',
+  posted_asc: 'j.posted_at is null, j.posted_at asc, j.first_seen_at asc',
+  first_seen: 'j.first_seen_at desc, j.title',
+  first_seen_asc: 'j.first_seen_at asc, j.title',
+  company: 'c.name, j.posted_at is null, j.posted_at desc',
+  title: 'j.title collate nocase, j.posted_at desc',
+};
+
 export default async function jobRoutes(app) {
   app.get('/api/jobs', async (req) => {
     const q = req.query;
@@ -40,7 +50,7 @@ export default async function jobRoutes(app) {
     const limit = Math.min(Number(q.limit) || 100, 1000);
     const offset = Number(q.offset) || 0;
     const sql = `select j.*, c.name as company_name from jobs j join companies c on c.id = j.company_id
-      ${where.length ? 'where ' + where.join(' and ') : ''} order by j.first_seen_at desc, j.title limit ? offset ?`;
+      ${where.length ? 'where ' + where.join(' and ') : ''} order by ${Object.hasOwn(SORTS, q.sort) ? SORTS[q.sort] : SORTS.posted} limit ? offset ?`;
     const rows = getSqlite().prepare(sql).all(...params, limit, offset);
     return { items: rows.map((r) => ({ ...r, matched_roles: JSON.parse(r.matched_roles || '[]') })) };
   });

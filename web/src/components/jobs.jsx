@@ -46,14 +46,37 @@ function JobDetail({ id, onClose }) {
   );
 }
 
+const SORT_LABELS = {
+  posted: 'newest posted',
+  posted_asc: 'oldest posted',
+  first_seen: 'newest first seen',
+  first_seen_asc: 'oldest first seen',
+  company: 'company',
+  title: 'title',
+};
+
+/** Clickable column header: first click sorts newest first, second click flips the direction. */
+function SortHeader({ label, desc, asc, value, onChange, testId }) {
+  const active = value === desc || value === asc;
+  const arrow = value === desc ? ' ↓' : value === asc ? ' ↑' : '';
+  return (
+    <th style={{ cursor: 'pointer', whiteSpace: 'nowrap', color: active ? 'var(--accent)' : undefined }} onClick={() => onChange(value === desc ? asc : desc)} data-testid={testId}>
+      {label}
+      {arrow}
+    </th>
+  );
+}
+
 const REASONS = ['', 'already_seen', 'baseline', 'role_mismatch', 'filtered', 'too_old', 'no_channel'];
 
 export function JobsTable({ companyId, ruleId, showCompany = true }) {
-  const [f, setF] = useState({ q: '', status: 'open', notify_status: '', skip_reason: '' });
+  const [f, setF] = useState({ q: '', status: 'open', notify_status: '', skip_reason: '', sort: 'posted', company_id: '' });
+  const companies = useApi(showCompany && !companyId ? '/api/companies' : null);
   const [open, setOpen] = useState(null);
   const qs = useMemo(() => {
     const p = new URLSearchParams(Object.entries(f).filter(([, v]) => v));
     if (companyId) p.set('company_id', companyId);
+    else if (f.company_id) p.set('company_id', f.company_id);
     if (ruleId) p.set('rule_id', ruleId);
     p.set('limit', '200');
     return p.toString();
@@ -64,6 +87,12 @@ export function JobsTable({ companyId, ruleId, showCompany = true }) {
     <div>
       <div className="row" style={{ marginBottom: 10 }}>
         <input placeholder="search title, location, company" value={f.q} onChange={set('q')} data-testid="jobs-search" />
+        {showCompany && !companyId && (
+          <select value={f.company_id} onChange={set('company_id')} data-testid="jobs-company">
+            <option value="">all companies</option>
+            {(companies.data?.items || []).map((c) => <option key={c.id} value={c.id}>{c.name} ({c.open_jobs})</option>)}
+          </select>
+        )}
         <select value={f.status} onChange={set('status')} data-testid="jobs-status">
           <option value="">open + closed</option>
           <option value="open">open</option>
@@ -78,11 +107,23 @@ export function JobsTable({ companyId, ruleId, showCompany = true }) {
         <select value={f.skip_reason} onChange={set('skip_reason')} data-testid="jobs-skip-reason">
           {REASONS.map((r) => <option key={r} value={r}>{r ? r.replaceAll('_', ' ') : 'any skip reason'}</option>)}
         </select>
+        <select value={f.sort} onChange={set('sort')} data-testid="jobs-sort">
+          {Object.entries(SORT_LABELS).map(([k, label]) => <option key={k} value={k}>Sort: {label}</option>)}
+        </select>
       </div>
       <div className="table-wrap">
         <table data-testid="jobs-table">
           <thead>
-            <tr><th>Title</th>{showCompany && <th>Company</th>}<th>Roles</th><th>Location</th><th>Posted</th><th>First seen</th><th>Discord</th><th></th></tr>
+            <tr>
+              <th>Title</th>
+              {showCompany && <th>Company</th>}
+              <th>Roles</th>
+              <th>Location</th>
+              <SortHeader label="Posted" desc="posted" asc="posted_asc" value={f.sort} onChange={(sort) => setF({ ...f, sort })} testId="sort-posted" />
+              <SortHeader label="First seen" desc="first_seen" asc="first_seen_asc" value={f.sort} onChange={(sort) => setF({ ...f, sort })} testId="sort-first-seen" />
+              <th>Discord</th>
+              <th></th>
+            </tr>
           </thead>
           <tbody>
             {(data?.items || []).map((j) => [
@@ -91,7 +132,7 @@ export function JobsTable({ companyId, ruleId, showCompany = true }) {
                 {showCompany && <td>{j.company_name}</td>}
                 <td><div className="chips">{j.matched_roles.map((r) => <span className="chip" key={r}>{r}</span>)}</div></td>
                 <td>{j.location}</td>
-                <td>{j.posted_at ? fmtAgo(j.posted_at) : <span className="muted">{j.posted_at_raw || '—'}</span>}</td>
+                <td title={j.posted_at ? new Date(j.posted_at).toLocaleString() : undefined} data-testid="job-posted">{j.posted_at ? fmtAgo(j.posted_at) : <span className="muted">{j.posted_at_raw || '—'}</span>}</td>
                 <td>{fmtAgo(j.first_seen_at)}</td>
                 <td><Badge value={j.notify_status} testId="job-notify-status" />{j.notify_skip_reason && <div className="muted small" data-testid="job-skip-reason">{j.notify_skip_reason.replaceAll('_', ' ')}</div>}</td>
                 <td className="muted small">{j.seen_count}×</td>
