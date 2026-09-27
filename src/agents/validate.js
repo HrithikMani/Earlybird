@@ -77,7 +77,7 @@ export async function validateCandidate({ company, spec, code, scriptPath, evide
   const matched = roles.length ? jobs.filter((j) => matchRoles(j.title, roles).length > 0) : jobs;
   if (roles.length && jobs.length) score.relevance = matched.length / jobs.length;
   const visible = evidence.visible_role_job_count ?? evidence.visible_job_count;
-  if (visible) score.completeness = Math.min(1, matched.length / visible);
+  if (visible) score.completeness = Math.min(1, matched.length / Math.min(visible, opts.maxJobs || visible));
   const newest = (evidence.newest_titles || []).filter(Boolean);
   if (newest.length && jobs.length) {
     const found = newest.filter((t) => jobs.some((j) => titleMatches(j.title, t)));

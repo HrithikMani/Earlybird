@@ -55,8 +55,9 @@ test.describe('notifications', () => {
     await mockPortal.addJob('acme', { id: 'old1', title: 'Backend Engineer', posted_at: Date.now() - 10 * 86400000 });
     await nextTick(api);
     expect(await discordInbox.embeds()).toHaveLength(0);
-    const skipped = await api.get('/api/jobs?skip_reason=too_old');
-    expect(skipped.items.map((j) => j.external_id)).toContain('old1');
+    // Older than the 7-day preference: not listed, but remembered so it is never sent later.
+    expect((await api.get('/api/jobs?q=Backend%20Engineer')).items.map((j) => j.external_id)).not.toContain('old1');
+    expect((await api.sql("select count(*) n from seen_jobs where job_key = 'id:old1'")).rows[0].n).toBe(1);
   });
 
   test('Discord 429 is retried and the job is sent exactly once', async ({ api, mocks, mockPortal, discordInbox }) => {

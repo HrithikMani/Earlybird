@@ -16,7 +16,8 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
   const globalFilters = getSettings('filters');
   const filters = { ...globalFilters, ...(company.notify_filters || {}) };
   const channelId = company.discord_channel_id || getSettings('discord').jobsChannelId;
-  const maxAgeMs = dedupe.maxNotifyAgeHours * 3600 * 1000;
+  // User preference: only jobs posted within N days matter (per-company override in notify_filters).
+  const cutoff = t - (filters.maxJobAgeDays ?? globalFilters.maxJobAgeDays) * 86400000;
   const renotifyMs = dedupe.renotifyRepostedAfterDays ? dedupe.renotifyRepostedAfterDays * 86400000 : null;
 
   const baselinedTerms = new Set(db.prepare('select term from company_terms where company_id = ?').all(company.id).map((r) => r.term.toLowerCase()));
@@ -25,6 +26,7 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
 
   const q = {
     listingByKey: db.prepare('select * from jobs where company_id = ? and job_key = ?'),
+    deleteListing: db.prepare('delete from jobs where id = ?'),
     listingByAlt: db.prepare('select * from jobs where company_id = ? and (canonical_url = ? or fingerprint = ?) limit 10'),
     seenByKey: db.prepare('select * from seen_jobs where company_id = ? and job_key = ?'),
     seenByAlt: db.prepare('select * from seen_jobs where company_id = ? and (canonical_url = ? or fingerprint = ?) order by first_seen_at limit 10'),
@@ -57,6 +59,16 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
       const keys = jobKeys(job, company.id, dedupe.trackingParams);
       if (seenThisRun.has(keys.job_key)) continue;
       seenThisRun.add(keys.job_key);
+      // Older than the user's window: remember it (so it can never count as new) but don't list or send it.
+      if (job.posted_at && job.posted_at < cutoff) {
+        const old = q.listingByKey.get(company.id, keys.job_key);
+        if (old) q.deleteListing.run(old.id);
+        const seenOld = q.seenByKey.get(company.id, keys.job_key);
+        if (seenOld) q.touchSeen.run(t, company.id, keys.job_key);
+        else q.insertSeen.run(company.id, keys.job_key, job.external_id ?? null, keys.canonical_url, keys.fingerprint, job.title, t, t, rule.id);
+        skip('too_old');
+        continue;
+      }
       const matched = matchRoles(job.title, roles);
       const matchedJson = JSON.stringify(matched);
 
@@ -92,7 +104,6 @@ export function ingestJobs({ company, rule, jobs, mode, baseline, queries = ['']
       else if (job.search_term && !baselinedTerms.has(job.search_term.toLowerCase()) && !termNotifyExisting.get(job.search_term.toLowerCase())) reason = 'baseline';
       else if (company.role_mode !== 'all_jobs' && roles.length > 0 && matched.length === 0) reason = 'role_mismatch';
       else if (filterReason(job, filters)) reason = 'filtered';
-      else if (job.posted_at && job.posted_at < t - maxAgeMs) reason = 'too_old';
       else if (!channelId) reason = 'no_channel';
 
       const jobId = newId('job');

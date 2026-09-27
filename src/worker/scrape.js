@@ -31,6 +31,7 @@ export function runnerOptions({ signal, log, artifactsDir } = {}) {
     scriptTimeoutMs: scripts.timeoutMs,
     scriptMemoryMb: scripts.memoryMb,
     maxTerms: getSettings('roles').maxTermsPerRun,
+    maxJobs: getSettings('filters').maxJobsPerCompany,
   };
 }
 

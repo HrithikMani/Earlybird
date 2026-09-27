@@ -20,6 +20,10 @@ export async function runHtml(rule, ctx, query) {
 
   for (let i = 0; i < maxPages; i++) {
     throwIfAborted(ctx.signal);
+    if (ctx.maxJobs && items.length >= ctx.maxJobs) {
+      ctx.meta.hit_cap = true; // newest N reached; older pages are not needed
+      break;
+    }
     const pageReq = p ? applyPagination(req, p, pageValue(p, i)) : req;
     const res = await httpRequest({ method: rule.method, url: pageReq.url, headers, body: pageReq.body, signal: ctx.signal, timeoutMs: ctx.timeoutMs, userAgent: ctx.userAgent, meta: ctx.meta, log: ctx.log });
     if (i === 0) baseUrl = res.url || pageReq.url;

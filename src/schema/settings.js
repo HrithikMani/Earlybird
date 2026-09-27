@@ -26,9 +26,9 @@ export const SettingsSections = {
     discoveryModel: z.string().min(1).default('claude-sonnet-5'),
     verifyModel: z.string().min(1).default('claude-sonnet-5'),
     effort: z.enum(['default', 'low', 'medium', 'high', 'xhigh', 'max']).default('default'),
-    maxSteps: z.number().int().min(3).max(200).default(40),
+    maxSteps: z.number().int().min(3).max(200).default(60),
     maxWallTimeMin: z.number().min(1).max(120).default(10),
-    maxCostUsd: z.number().min(0.01).max(100).default(1),
+    maxCostUsd: z.number().min(0.01).max(100).default(2),
     maxAttempts: z.number().int().min(1).max(10).default(3),
     loopRepeatLimit: z.number().int().min(2).max(20).default(3),
     noProgressSteps: z.number().int().min(3).max(50).default(8),
@@ -60,17 +60,20 @@ export const SettingsSections = {
   }),
   roles: z.object({ maxTermsPerRun: z.number().int().min(1).max(50).default(10) }),
   filters: z.object({
+    // Only jobs posted within this many days are stored, shown and sent (older ones are only remembered for dedupe).
+    maxJobAgeDays: z.number().min(1).max(365).default(7),
+    // Hard cap: rules read at most the newest N jobs per company per run, and at most N listings are kept.
+    maxJobsPerCompany: z.number().int().min(5).max(2000).default(100),
     excludeKeywords: z.array(z.string()).default([]),
     locations: z.array(z.string()).default([]),
   }),
   dedupe: z.object({
-    maxNotifyAgeHours: z.number().min(1).default(72),
     renotifyRepostedAfterDays: z.number().int().min(1).nullable().default(null),
     trackingParams: z.array(z.string()).default(DEFAULT_TRACKING_PARAMS),
   }),
   retention: z.object({
     closedJobDays: z.number().int().min(1).default(3),
-    maxJobAgeDays: z.number().int().min(1).default(30),
+    keepJobsDays: z.number().int().min(1).default(30),
     seenJobDays: z.number().int().min(30).default(365),
     runDays: z.number().int().min(1).default(30),
     logDays: z.number().int().min(1).default(14),

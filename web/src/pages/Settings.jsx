@@ -37,17 +37,18 @@ const FIELDS = {
   ],
   roles: [['maxTermsPerRun', 'Max search terms per run', 'number']],
   filters: [
+    ['maxJobAgeDays', 'Only care about jobs posted within (days): older ones are not stored, shown or sent', 'number'],
+    ['maxJobsPerCompany', 'Max jobs per company: rules read only the newest N, and only N listings are kept', 'number'],
     ['excludeKeywords', 'Exclude keywords (comma separated)', 'list'],
     ['locations', 'Locations (comma separated, empty = any)', 'list'],
   ],
   dedupe: [
-    ['maxNotifyAgeHours', 'Only notify jobs posted within (hours)', 'number'],
     ['renotifyRepostedAfterDays', 'Re-notify reposted jobs after (days, empty = never)', 'nullnumber'],
     ['trackingParams', 'URL params stripped for dedupe', 'list'],
   ],
   retention: [
     ['closedJobDays', 'Delete closed jobs after (days)', 'number'],
-    ['maxJobAgeDays', 'Delete jobs older than (days)', 'number'],
+    ['keepJobsDays', 'Delete listings first seen more than (days) ago', 'number'],
     ['seenJobDays', 'Remember seen jobs for (days)', 'number'],
     ['runDays', 'Keep runs (days)', 'number'],
     ['logDays', 'Keep logs (days)', 'number'],
@@ -208,6 +209,7 @@ export default function Settings() {
         <Card key={tab} testId={`settings-${tab}`}>
           {tab === 'ai' && data?.ai?.apiKeySource === 'env' && <p className="muted small">Using the API key from .env. Saving one here overrides it.</p>}
           {tab === 'roles' && <p className="muted small">Roles themselves are managed on the <a href="#/roles">Roles page</a>.</p>}
+          {tab === 'retention' && <ActionButton onClick={async () => { await api.post('/api/maintenance/cleanup'); }} testId="run-cleanup">Run cleanup now</ActionButton>}
           {tab === 'discord' ? (
             <DiscordEditor value={draft} onChange={setDraft} />
           ) : (

@@ -21,6 +21,21 @@ export function planQueries(rule, terms = [], maxTerms = 10) {
   return { queries: clean, capped: false };
 }
 
+/**
+ * Keeps only the newest `max` jobs: by posted date when most jobs have one, otherwise in source order
+ * (sources are read newest-first where possible). Beyond the newest ~100, nothing is relevant to "new jobs".
+ */
+export function capNewest(jobs, max, meta) {
+  if (!max || jobs.length <= max) return jobs;
+  const dated = jobs.filter((j) => j.posted_at).length;
+  const ordered = dated >= jobs.length * 0.8 ? [...jobs].sort((a, b) => (b.posted_at ?? 0) - (a.posted_at ?? 0)) : jobs;
+  if (meta) {
+    meta.hit_cap = true;
+    meta.dropped_by_cap = jobs.length - max;
+  }
+  return ordered.slice(0, max);
+}
+
 function firstUrl(rule) {
   if (rule.type === 'browser') return rule.actions.find((a) => a.do === 'goto')?.url;
   return rule.url;
@@ -54,6 +69,7 @@ export async function runRule(ruleInput, opts = {}) {
     scriptCode: opts.scriptCode,
     scriptTimeoutMs: opts.scriptTimeoutMs,
     scriptMemoryMb: opts.scriptMemoryMb,
+    maxJobs: opts.maxJobs,
   };
   if (opts.signal?.aborted) throw new Cancelled();
 
@@ -111,7 +127,7 @@ export async function runRule(ruleInput, opts = {}) {
   }
 
   meta.duration_ms = Date.now() - started;
-  const jobs = [...byKey.values()];
+  const jobs = capNewest([...byKey.values()], opts.maxJobs, meta);
   meta.job_count = jobs.length;
   return { jobs, meta, rule };
 }

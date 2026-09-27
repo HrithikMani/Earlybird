@@ -11,7 +11,7 @@ export const CompanyInputSchema = z.object({
   role_mode: z.enum(['global_plus_company', 'company_only', 'all_jobs']).default('global_plus_company'),
   interval_min: z.number().int().min(1).nullish(),
   source_filters: z.object({ location: z.string().optional(), department: z.string().optional() }).partial().nullish(),
-  notify_filters: z.object({ excludeKeywords: z.array(z.string()).optional(), locations: z.array(z.string()).optional() }).partial().nullish(),
+  notify_filters: z.object({ excludeKeywords: z.array(z.string()).optional(), locations: z.array(z.string()).optional(), maxJobAgeDays: z.number().min(1).max(365).optional() }).partial().nullish(),
   discord_channel_id: z.string().nullish(),
   notes: z.string().nullish(),
 });

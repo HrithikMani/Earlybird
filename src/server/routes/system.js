@@ -32,6 +32,13 @@ export function healthSnapshot() {
 }
 
 export default async function systemRoutes(app) {
+  app.post('/api/maintenance/cleanup', async (req) => {
+    const { runCleanup } = await import('../../worker/cleanup.js');
+    const res = runCleanup();
+    req.log.info({ scope: 'audit', ...res }, 'cleanup run manually');
+    return res;
+  });
+
   app.get('/api/health', async (_req, reply) => {
     const h = healthSnapshot();
     reply.code(h.db.ok ? 200 : 503);

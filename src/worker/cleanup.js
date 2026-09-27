@@ -18,7 +18,21 @@ export function runCleanup() {
   const res = {};
   db.transaction(() => {
     res.closedJobs = db.prepare('delete from jobs where closed_at is not null and closed_at < ?').run(t - r.closedJobDays * DAY).changes;
-    res.oldJobs = db.prepare('delete from jobs where first_seen_at < ?').run(t - r.maxJobAgeDays * DAY).changes;
+    res.oldJobs = db.prepare('delete from jobs where first_seen_at < ?').run(t - r.keepJobsDays * DAY).changes;
+    // Listings that aged out of the "posted within N days" preference (global, or the company's override).
+    const globalDays = getSettings('filters').maxJobAgeDays;
+    const del = db.prepare('delete from jobs where company_id = ? and posted_at is not null and posted_at < ?');
+    res.agedOut = 0;
+    // Keep only each company's newest N listings (Settings → Filters → max jobs per company).
+    const maxJobs = getSettings('filters').maxJobsPerCompany;
+    const trim = db.prepare(`delete from jobs where company_id = ? and id not in (
+      select id from jobs where company_id = ? order by coalesce(posted_at, first_seen_at) desc limit ?)`);
+    res.trimmed = 0;
+    for (const c of db.prepare('select id, notify_filters from companies').all()) {
+      const days = JSON.parse(c.notify_filters || '{}')?.maxJobAgeDays ?? globalDays;
+      res.agedOut += del.run(c.id, t - days * DAY).changes;
+      res.trimmed += trim.run(c.id, c.id, maxJobs).changes;
+    }
     res.seenJobs = db.prepare('delete from seen_jobs where last_seen_at < ?').run(t - r.seenJobDays * DAY).changes;
     res.notifications = db.prepare("delete from notifications where status in ('sent','failed') and created_at < ?").run(t - 30 * DAY).changes;
     res.runs = db.prepare("delete from runs where started_at < ? and status != 'running'").run(t - r.runDays * DAY).changes;

@@ -83,12 +83,13 @@ export async function drainTasks({ wait = false } = {}) {
 async function runTask(task) {
   const reg = registry.register(task.id, { kind: 'task', task_kind: task.kind, company_id: task.company_id, label: `${task.kind} ${task.company_id ?? ''}` });
   const tlog = childLogger('task', { task_id: task.id, company_id: task.company_id, rule_id: task.rule_id });
-  const { createAgentState } = await import('../agents/loop.js');
+  const { createAgentState, agentDiagnostics } = await import('../agents/loop.js');
   const modelId = getSettings('ai')[MODEL_SETTING[task.kind]];
   let lastFlush = 0;
   const state = createAgentState({
     taskId: task.id,
     modelId,
+    log: tlog,
     onProgress: (s) => {
       if (Date.now() - lastFlush < 500) return;
       lastFlush = Date.now();
@@ -119,18 +120,19 @@ async function runTask(task) {
   } finally {
     reg.done();
   }
+  const diagnostics = agentDiagnostics(state);
   const finished = { status, finished_at: Date.now(), steps: state.steps, input_tokens: state.inputTokens, output_tokens: state.outputTokens, cost_usd: state.costUsd };
   if (error) {
     const d = errorDetail(error);
-    Object.assign(finished, { error_type: error.type || error.name || 'Error', error_message: error.message, result: { error: d, detail: error.detail } });
+    Object.assign(finished, { error_type: error.type || error.name || 'Error', error_message: error.message, result: { error: d, detail: error.detail, diagnostics } });
     emitTaskEvent(task.id, 'status', { status, error_type: finished.error_type, message: error.message }, status === 'cancelled' ? 'warn' : 'error');
     tlog[status === 'cancelled' ? 'warn' : 'error']({ status, error_type: finished.error_type, err: d, steps: state.steps, cost_usd: state.costUsd }, `task ${status}: ${error.message}`);
     await onTaskFailed(task, status, error);
   } else {
-    finished.result = result;
+    finished.result = { ...result, diagnostics };
     if (task.kind === 'discovery' && task.company_id) await resolveAlerts(task.company_id, ['discovery_failed']);
     emitTaskEvent(task.id, 'status', { status, summary: result?.summary });
-    tlog.info({ steps: state.steps, cost_usd: Number(state.costUsd.toFixed(4)), tokens: state.inputTokens + state.outputTokens }, `task succeeded: ${result?.summary ?? task.kind}`);
+    tlog.info({ steps: state.steps, cost_usd: Number(state.costUsd.toFixed(4)), tokens: state.inputTokens + state.outputTokens, by_phase: diagnostics.by_phase, failed_calls: diagnostics.failed_calls.length }, `task succeeded: ${result?.summary ?? task.kind}`);
   }
   patchTask(task.id, finished);
   forgetTask(task.id);

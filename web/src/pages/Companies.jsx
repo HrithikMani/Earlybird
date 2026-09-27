@@ -4,7 +4,7 @@ import { navigate, useApi } from '../hooks.js';
 import { ActionButton, Badge, Card, Empty, ErrorBox, fmtAgo } from '../components/ui.jsx';
 
 function AddCompany({ onAdded, apiKeyMissing }) {
-  const [f, setF] = useState({ name: '', careers_url: '', roles: '', role_mode: 'global_plus_company', location: '' });
+  const [f, setF] = useState({ name: '', careers_url: '', roles: '', role_mode: 'global_plus_company', location: '', maxAge: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const submit = async () => {
     const res = await api.post('/api/companies', {
@@ -13,8 +13,9 @@ function AddCompany({ onAdded, apiKeyMissing }) {
       role_mode: f.role_mode,
       roles: f.roles.split(',').map((s) => s.trim()).filter(Boolean),
       source_filters: f.location ? { location: f.location } : undefined,
+      notify_filters: f.maxAge ? { maxJobAgeDays: Number(f.maxAge) } : undefined,
     });
-    setF({ name: '', careers_url: '', roles: '', role_mode: 'global_plus_company', location: '' });
+    setF({ name: '', careers_url: '', roles: '', role_mode: 'global_plus_company', location: '', maxAge: '' });
     onAdded(res);
   };
   return (
@@ -32,6 +33,7 @@ function AddCompany({ onAdded, apiKeyMissing }) {
           </select>
         </label>
         <label className="field"><span>Location filter at the portal (optional)</span><input value={f.location} onChange={set('location')} placeholder="Remote" data-testid="company-location" /></label>
+        <label className="field"><span>Only jobs posted within (days, optional)</span><input type="number" min="1" value={f.maxAge} onChange={set('maxAge')} placeholder="global default (Settings → Filters)" data-testid="company-max-age" /></label>
       </div>
       {apiKeyMissing && <p className="muted small">No Anthropic API key yet: the company will wait in "pending discovery" until you add one, or you can paste a rule by hand on its page.</p>}
       <ActionButton variant="primary" onClick={submit} testId="company-add">Add and discover</ActionButton>

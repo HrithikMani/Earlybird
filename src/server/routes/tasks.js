@@ -52,6 +52,15 @@ export default async function taskRoutes(app) {
     return { task, events, company: task.company_id ? getCompany(task.company_id) : null, retry_chain: chain, retries: children, limits: { maxCostUsd, maxSteps, maxWallTimeMin } };
   });
 
+  // Full transcript (task + every event) as a JSON download, for reviewing a run while tuning prompts.
+  app.get('/api/tasks/:id/transcript', async (req, reply) => {
+    const task = getTask(req.params.id);
+    if (!task) return reply.code(404).send({ error: 'not_found' });
+    const events = getSqlite().prepare('select * from task_events where task_id = ? order by seq').all(task.id).map(parseEvent);
+    reply.header('content-disposition', `attachment; filename="${task.id}-transcript.json"`);
+    return { task, company: task.company_id ? getCompany(task.company_id) : null, events };
+  });
+
   // Live events: replays everything after ?after=<seq>, then streams new ones.
   app.get('/api/tasks/:id/stream', async (req, reply) => {
     const id = req.params.id;

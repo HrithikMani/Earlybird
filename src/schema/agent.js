@@ -15,6 +15,7 @@ export const DiscoveryResultSchema = z.object({
       source_request: z.string().optional(),
       site_supports_sort_newest: z.boolean().optional(),
       how_to_get_newest: z.string().optional(),
+      recommended_strategy: z.string().optional(),
       visible_job_count: z.number().int().nonnegative().optional(),
       visible_role_job_count: z.number().int().nonnegative().optional(),
       newest_titles: z.array(z.string()).default([]),

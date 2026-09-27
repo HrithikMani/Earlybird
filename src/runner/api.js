@@ -21,6 +21,10 @@ export async function runApi(rule, ctx, query) {
 
   for (let i = 0; i < maxPages; i++) {
     throwIfAborted(ctx.signal);
+    if (ctx.maxJobs && items.length >= ctx.maxJobs) {
+      ctx.meta.hit_cap = true; // newest N reached; older pages are not needed
+      break;
+    }
     let pageReq = req;
     if (p?.kind === 'cursor') {
       if (i > 0) pageReq = applyPagination(req, p, cursor);

@@ -40,7 +40,23 @@ export async function runDiscovery(task, { signal, state, onKill, log, setTaskMe
   const terms = searchTerms(roles);
   updateCompany(company.id, { status: 'discovering' });
 
+  const filters = getSettings('filters');
+  const maxAgeDays = company.notify_filters?.maxJobAgeDays ?? filters.maxJobAgeDays;
+  const locations = [company.source_filters?.location, ...(company.notify_filters?.locations ?? filters.locations ?? [])].filter(Boolean);
+  const interests = [
+    `- Roles: ${roles.length ? roles.map((r) => r.name).join(', ') : 'all jobs'}`,
+    `- Locations: ${locations.length ? [...new Set(locations)].join(', ') : 'anywhere'}`,
+    `- Recency: only jobs posted within the last ${maxAgeDays} day(s) matter; the newest postings matter most`,
+    company.source_filters?.department ? `- Department: ${company.source_filters.department}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
   const prompt = loadPrompt('discover-rule', {
+    interests,
+    max_age_days: String(maxAgeDays),
+    max_steps: String(ai.maxSteps),
+    max_jobs: String(filters.maxJobsPerCompany),
+    max_cost: String(ai.maxCostUsd),
     company_name: company.name,
     careers_url: company.careers_url,
     roles: roles.length ? roles.map((r) => `- ${r.name} (search terms: ${(r.search_terms || [r.name]).join(', ')})`).join('\n') : '(no roles: all jobs are wanted)',

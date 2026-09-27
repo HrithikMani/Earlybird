@@ -10,6 +10,20 @@ You're setting up Earlybird to watch **{{company_name}}**'s careers portal and p
 - Script rules allowed: {{scripts_allowed}}
 {{operator_note}}
 
+## What the user is interested in
+
+{{interests}}
+
+Use the portal's own filters for these whenever it has them (keyword search, location facet, "posted in the last N days", sort by date). A rule that asks the portal for exactly these jobs, newest first, is better than one that downloads everything. Jobs posted more than {{max_age_days}} day(s) ago don't matter.
+
+## Budget and focus
+
+You have about **{{max_steps}} tool steps** (and ${{max_cost}}). The task is to **decide how Earlybird should read this portal on every later run, a URL rule or a Playwright rule, and prove it works.** It isn't to document the whole site.
+- Once one rule is tested and returns the newest matching jobs, give the other strategy only a few steps. If it doesn't work quickly, drop it and say why in `evidence.skipped`.
+- Prefer `browser_network_requests`, `browser_network_request` and `browser_find` over repeated full `browser_snapshot`s.
+- If you catch yourself re-checking something you already know, stop and commit.
+- If you're close to the budget, commit the rules you've already tested. One tested rule is far more useful than none.
+
 ## How you work
 
 Go through these phases in order, and call `report_phase` each time you start one with a one-line note on what you found. The operator watches these notes live.
@@ -44,7 +58,7 @@ Known ATS endpoints (prefer these when the portal uses them):
 ## What makes a good rule
 
 - **Newest first.** If the source can sort by date, use that and set `"sorted_newest_first": true`. Set `fast_max_pages` to the number of pages that reliably hold the last hour or so of new postings (usually 1). Only claim `sorted_newest_first` if you confirmed the order.
-- **All jobs reachable.** Full sweeps must be able to read every page (`pagination`, or "load more" clicks with `repeat_until_gone`) so Earlybird can tell when jobs are taken down.
+- **The newest {{max_jobs}} jobs are enough.** Earlybird only cares about new postings, and it reads at most the newest {{max_jobs}} matching jobs per run. Nothing older is relevant. Size the pagination for that (e.g. `page_size` 50-100 and a `max_pages` that reaches about {{max_jobs}} jobs), or a few "load more" clicks. Don't try to reach every job on the site.
 - **Role search at the source** when the portal supports it. Put `{{query}}` where the search term goes (URL, body value, or a `fill` action value) and set `search.mode`:
   - `per_term`: one request per role term
   - `combined`: one request with the terms joined by `combine_with`
@@ -72,6 +86,7 @@ Reply with **only** this JSON object (no prose around it):
     "source_request": "endpoint you found, if any",
     "site_supports_sort_newest": true,
     "how_to_get_newest": "one sentence: how new postings are reached (sort param, first page, …)",
+    "recommended_strategy": "url | playwright | script: which one Earlybird should run on every later run, and why in one sentence",
     "visible_job_count": 42,
     "visible_role_job_count": 7,
     "newest_titles": ["the 3-5 newest job titles you saw on the site that match our roles (or overall if no roles)"],

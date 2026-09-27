@@ -19,7 +19,11 @@ function Event({ ev }) {
       body = <><strong>→ {d.tool}</strong>{d.repeat > 1 && <span className="inline-error"> (repeat #{d.repeat})</span>} <span className="mono small muted">{JSON.stringify(d.input).slice(0, 220)}</span></>;
       break;
     case 'tool_result':
-      body = <><strong>← {d.tool}</strong> <span className="mono small muted">{JSON.stringify(d.output).slice(0, 220)}</span></>;
+      body = d.error ? (
+        <><strong className="inline-error">← {d.tool} failed</strong> <span className="small inline-error">{d.error.slice(0, 300)}</span></>
+      ) : (
+        <><strong>← {d.tool}</strong> <span className="mono small muted">{JSON.stringify(d.output).slice(0, 220)}</span></>
+      );
       break;
     case 'model_text':
       body = <span style={{ whiteSpace: 'pre-wrap' }}>{d.text}</span>;
@@ -46,6 +50,71 @@ function Event({ ev }) {
       {body}
       {open && <Json value={d} />}
     </div>
+  );
+}
+
+/** Where the steps and money went (per phase) and which tool calls failed: for tuning the prompt. */
+function Diagnostics({ task, events }) {
+  const stored = task.result?.diagnostics;
+  // While running, derive the same numbers from the live step events.
+  const byPhase = stored?.by_phase ?? {};
+  const failed = stored?.failed_calls ?? [];
+  if (!stored) {
+    for (const e of events) {
+      if (e.type === 'step') {
+        const b = (byPhase[e.data.phase || 'start'] ??= { steps: 0, cost_usd: 0, tool_calls: 0, failed_calls: 0, input_tokens: 0, output_tokens: 0 });
+        b.steps++;
+        b.cost_usd += e.data.step_cost_usd || 0;
+        b.tool_calls += (e.data.tools || []).length;
+        b.input_tokens += e.data.input_tokens || 0;
+        b.output_tokens += e.data.output_tokens || 0;
+      }
+      if (e.type === 'tool_result' && e.data.error) {
+        failed.push({ step: e.data.step, phase: e.data.phase, tool: e.data.tool, error: e.data.error });
+        if (byPhase[e.data.phase || 'start']) byPhase[e.data.phase || 'start'].failed_calls++;
+      }
+    }
+  }
+  const phases = Object.entries(byPhase);
+  if (!phases.length) return null;
+  const totalCost = phases.reduce((s, [, v]) => s + v.cost_usd, 0) || 1;
+  return (
+    <Card title="Diagnostics (for prompt tuning)" testId="task-diagnostics">
+      <table>
+        <thead><tr><th>Phase</th><th>Steps</th><th>Tool calls</th><th>Failed calls</th><th>Tokens (in/out)</th><th>Cost</th><th>Share</th></tr></thead>
+        <tbody>
+          {phases.map(([p, v]) => (
+            <tr key={p} data-testid={`diag-phase-${p}`}>
+              <td>{PHASE_LABEL[p] || p}</td>
+              <td>{v.steps}</td>
+              <td>{v.tool_calls}</td>
+              <td className={v.failed_calls ? 'inline-error' : ''}>{v.failed_calls}</td>
+              <td className="small">{v.input_tokens.toLocaleString()} / {v.output_tokens.toLocaleString()}</td>
+              <td>${v.cost_usd.toFixed(3)}</td>
+              <td>{Math.round((v.cost_usd / totalCost) * 100)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h3>Failed tool calls ({failed.length})</h3>
+      {failed.length === 0 ? (
+        <p className="muted small">None.</p>
+      ) : (
+        <table data-testid="diag-failed-calls">
+          <thead><tr><th>Step</th><th>Phase</th><th>Tool</th><th>Error</th></tr></thead>
+          <tbody>
+            {failed.map((f, i) => (
+              <tr key={i}>
+                <td>{f.step}</td>
+                <td>{PHASE_LABEL[f.phase] || f.phase}</td>
+                <td className="mono small">{f.tool}{f.input ? <div className="muted">{JSON.stringify(f.input).slice(0, 160)}</div> : null}</td>
+                <td className="small inline-error">{f.error}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
   );
 }
 
@@ -117,7 +186,8 @@ export default function TaskDetail({ params }) {
           </div>
         </Card>
       )}
-      <Card title={`Live activity (${events.length} events)`} testId="task-events">
+      <Diagnostics task={task} events={events} />
+      <Card title={`Live activity (${events.length} events)`} testId="task-events" actions={<a className="btn small" href={`/api/tasks/${task.id}/transcript`} data-testid="task-transcript">Download transcript (JSON)</a>}>
         {events.map((ev) => <Event key={ev.seq} ev={ev} />)}
       </Card>
       {task.result && (
