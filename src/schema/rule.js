@@ -105,6 +105,8 @@ export const BrowserRuleSchema = z.object({
   type: z.literal('browser'),
   strategy: z.literal('playwright').default('playwright'),
   actions: z.array(ActionSchema).min(2),
+  // Optional URL pagination: the page/offset param is applied to the first goto URL and the actions repeat per page.
+  pagination: PaginationSchema.optional(),
   item_selector: z.string().min(1),
   fields: FieldsSchema,
   ...Common,

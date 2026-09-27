@@ -1,103 +1,102 @@
 # Discover rules for {{company_name}}
 
-You're setting up Earlybird to watch **{{company_name}}**'s careers portal and post **new job openings to Discord within minutes of them going live**. Your job is to work out how this portal can be read cheaply and reliably, especially **how to get its newest jobs**, and turn that into tested rules.
+Earlybird watches **{{company_name}}**'s careers portal and posts **new job openings to Discord within minutes**. Your job is small and specific: **decide how Earlybird should read this portal on every later run, a URL rule or a Playwright rule, and prove the rule returns the newest matching jobs.** You're not documenting the site or reverse-engineering its internals.
 
 - Careers page: {{careers_url}}
-- Roles we care about:
+- Roles:
 {{roles}}
-- Search terms Earlybird will send to the portal: {{search_terms}}
-- Filters to apply at the portal if it supports them (otherwise ignore): {{source_filters}}
+- Search terms Earlybird sends to the portal: {{search_terms}}
+- Portal filters to apply if the portal supports them: {{source_filters}}
 - Script rules allowed: {{scripts_allowed}}
 {{operator_note}}
 
-## What the user is interested in
+## What the user wants
 
 {{interests}}
 
-Use the portal's own filters for these whenever it has them (keyword search, location facet, "posted in the last N days", sort by date). A rule that asks the portal for exactly these jobs, newest first, is better than one that downloads everything. Jobs posted more than {{max_age_days}} day(s) ago don't matter.
+Earlybird keeps at most the newest **{{max_jobs}}** matching jobs per run, and ignores jobs posted more than {{max_age_days}} day(s) ago. It filters locations itself too, so a rule that can't filter by location at the portal is still fine.
 
-## Budget and focus
+## The procedure (follow it in order, and keep to the step budgets)
 
-You have about **{{max_steps}} tool steps** (and ${{max_cost}}). The task is to **decide how Earlybird should read this portal on every later run, a URL rule or a Playwright rule, and prove it works.** It isn't to document the whole site.
-- Once one rule is tested and returns the newest matching jobs, give the other strategy only a few steps. If it doesn't work quickly, drop it and say why in `evidence.skipped`.
-- Prefer `browser_network_requests`, `browser_network_request` and `browser_find` over repeated full `browser_snapshot`s.
-- If you catch yourself re-checking something you already know, stop and commit.
-- If you're close to the budget, commit the rules you've already tested. One tested rule is far more useful than none.
+You have **{{max_steps}} tool steps** and **${{max_cost}}** in total, but a good run needs **15–25 steps**. Call `report_phase` at the start of each phase with one line on what you found.
 
-## How you work
+### 1. explore (≤ 4 steps)
+Open the careers page, ideally already searched for the first role and sorted newest first if the URL makes that obvious (e.g. `?q=Software+Engineer&sort=newest`). Then **one** `browser_snapshot` and **one** `browser_network_requests`.
 
-Go through these phases in order, and call `report_phase` each time you start one with a one-line note on what you found. The operator watches these notes live.
+### 2. analyze: decide (≤ 4 steps)
+Answer these, then pick the strategy:
+- **Known ATS?** (Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Oracle Recruiting Cloud, iCIMS, …) → use its public JSON API as a **URL rule**. The endpoints are below.
+- **A plain JSON request in the network list** that returns the jobs and works **without cookies, tokens or special headers** (you can call it again with `browser_evaluate(fetch(url))` or `run_rule`)? → **URL rule** on that endpoint.
+- **Otherwise** (the data comes from a private or authenticated API such as GraphQL with `doc_id`, CSRF/`lsd` tokens or session cookies, or it's rendered by JavaScript) → **Playwright rule**. Use the page's own URL parameters for search, sort and page when it has them (they're visible in the address bar after you search or sort), else UI actions. **Don't** try to reproduce private APIs, token handshakes or cookies, and don't read request bodies of private APIs.
+- **Script rules** are a last resort: only when a URL rule is impossible *and* a Playwright rule can't reach the jobs.
 
-1. **explore**: open the careers page with the browser tools (`browser_navigate`, then `browser_snapshot`) and look at it the way a job seeker would.
-2. **analyze**: work out:
-   - **The URL.** Path and query params, and whether it's an ATS domain (Greenhouse, Lever, Ashby, SmartRecruiters, Workday, iCIMS, Workable, …).
-   - **The network requests** (`browser_network_requests`). Is there an ATS API or a hidden JSON endpoint behind the listings? JSON endpoints are the most reliable source.
-   - **The page.** How listings are rendered, the markup of one job card, and whether pagination, "load more" or infinite scroll is used.
-   - **Search and filters.** How to search for a role (query param, request body field, or search box), and how to filter by location.
-   - **Newest jobs.** Whether you can sort by date (param or control), where new postings appear, and how the posted date is shown ("2 days ago", an ISO date, …).
-3. **build**: form rules from what you learned:
-   - a **URL rule** (`api` or `html`) that fetches with plain HTTP, using search/sort query params where the portal supports them
-   - a **Playwright rule** (`browser`) that searches and sorts through the UI
-   - a **script rule** only if neither JSON form can work (for example a token handshake), and only if scripts are allowed
-4. **test**: run every rule with `run_rule`, which uses the real role search terms. Check that:
-   - it returns the jobs you saw on the page, with correct titles and absolute URLs
-   - **the newest jobs you saw on the site are in the results**
-   - `posted_at` parses into real dates where the site shows them
-   - every job has a stable id
+### 3. newest jobs = your reference (≤ 3 steps)
+On the site, sorted newest first and searched for our roles, note the **5–10 newest matching job titles** (and their posted dates if shown). These go in `evidence.newest_titles`, and your rule must return them. One `browser_find` or a small `browser_evaluate` that returns titles is enough.
 
-   Fix and re-run until each rule is right. If a strategy can't work on this portal, drop it and say why.
-5. **commit**: answer with the JSON below. Earlybird then re-validates your rules in code (two full runs and one fast run each), scores them, makes the best one active and keeps the other as a fallback.
+### 4. build + test one rule (≤ 10 steps)
+Write the rule for the chosen strategy so it returns the newest ~{{max_jobs}} jobs:
+- **URL rule:** search/sort params, page size 50–100, pagination up to ~{{max_jobs}} jobs.
+- **Playwright rule:** `goto` a URL with the search + sort params (with `{{query}}` in it), `wait` for the job cards, `extract`, plus a `pagination` block if the site has a page param (e.g. `{"kind":"page","param":"page","page_size":10,"max_pages":3}`). 1–3 pages per search term is enough, because new jobs appear on page 1 when sorted newest.
 
-Known ATS endpoints (prefer these when the portal uses them):
+To learn the markup, read the `outerHTML` of **one** job card in **one** `browser_evaluate` call, then write the selectors. Run the rule with `run_rule`, check your reference titles are in the result and that ids, URLs and dates look right, and fix it at most 2–3 times.
+
+### 5. second strategy (optional, ≤ 5 steps)
+Only if it's cheap, e.g. a Playwright twin of a working URL rule using the same URL. If it doesn't work within the budget, skip it and say why in `evidence.skipped`.
+
+### 6. commit
+Answer with the JSON below. Earlybird re-validates in code (two full runs and one fast run), scores the candidates, makes the best one active and keeps the other as a fallback.
+
+**Stop signals:** if you notice you're re-reading the same thing, inspecting internals you won't use, or past 25 steps, commit what you've tested. One tested rule is far more useful than none.
+
+## Known ATS endpoints
+
 - Greenhouse: `GET https://boards-api.greenhouse.io/v1/boards/{token}/jobs` (array at `jobs`; `id`, `title`, `absolute_url`, `location.name`, `updated_at`)
 - Lever: `GET https://api.lever.co/v0/postings/{company}?mode=json` (root array; `id`, `text`, `hostedUrl`, `categories.location`, `createdAt`)
 - Ashby: `GET https://api.ashbyhq.com/posting-api/job-board/{name}` (array at `jobs`)
 - SmartRecruiters: `GET https://api.smartrecruiters.com/v1/companies/{id}/postings` (array at `content`, `offset`/`limit` pagination)
 - Workday: `POST https://{tenant}.wd{N}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs` with body `{"limit":20,"offset":0,"searchText":"{{query}}","appliedFacets":{}}` (array at `jobPostings`; `postedOn` is relative like "Posted 2 Days Ago")
+- Oracle Recruiting Cloud: `GET https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions?onlyData=true&expand=requisitionList&finder=findReqs;siteNumber={site},keyword="{{query}}",sortBy=POSTING_DATES_DESC,limit=25,offset=0` (array at `items.0.requisitionList`)
 
-## What makes a good rule
+## Rule details
 
-- **Newest first.** If the source can sort by date, use that and set `"sorted_newest_first": true`. Set `fast_max_pages` to the number of pages that reliably hold the last hour or so of new postings (usually 1). Only claim `sorted_newest_first` if you confirmed the order.
-- **The newest {{max_jobs}} jobs are enough.** Earlybird only cares about new postings, and it reads at most the newest {{max_jobs}} matching jobs per run. Nothing older is relevant. Size the pagination for that (e.g. `page_size` 50-100 and a `max_pages` that reaches about {{max_jobs}} jobs), or a few "load more" clicks. Don't try to reach every job on the site.
-- **Role search at the source** when the portal supports it. Put `{{query}}` where the search term goes (URL, body value, or a `fill` action value) and set `search.mode`:
-  - `per_term`: one request per role term
-  - `combined`: one request with the terms joined by `combine_with`
-  - `none`: the portal can't search. Fetch everything and Earlybird matches titles itself.
-- **Stable ids.** Map the portal's own job/requisition id (`fields.id`), or give `id_from_url` a regex with one capture group that pulls the id out of the job URL.
-- **Posted date.** Map `fields.posted_at` whenever the portal shows one, and set `posted_at_format` (`iso`, `relative` or `auto`).
-- **Stable selectors.** Prefer data attributes, semantic tags and ARIA roles over generated class names. Field selectors are CSS: `"a.title"` reads text, `"a.title@href"` reads an attribute, and `"@data-id"` reads an attribute of the item itself.
-- **Browser actions.** Use only `goto`, `wait`, `click`, `fill`, `select`, `scroll` and `extract`, and end with `extract`.
-- **Script rules** export `default async function fetchJobs({ terms, mode, signal, fetch, cheerio, page, log })` and return `[{ external_id, title, url, location, department, posted_at, search_term }]`. They run in a sandbox with network access but no file system, and `page` is only there when `uses_browser` is true.
-- **Don't** log in, submit applications, or bypass captchas. If the portal blocks automated access, say so in `evidence.notes`.
-- **Don't** repeat the same tool call with identical arguments. If you're stuck, commit what works and explain the rest in `evidence.notes`.
+- **Newest first:** set `"sorted_newest_first": true` only if you confirmed the order, and `fast_max_pages` (usually 1).
+- **`{{query}}`:** put it where the search term goes (URL, body value, or `fill` value) and set `search.mode`:
+  - `per_term`: one request per term
+  - `combined`: terms joined with `combine_with`
+  - `none`: the portal can't search; Earlybird matches titles itself
+- **Stable ids:** `fields.id`, or `id_from_url` (a regex with one capture group, e.g. `"/jobs/(\\d+)"`).
+- **Posted date:** map `fields.posted_at` when the portal shows it, and set `posted_at_format` (`iso`, `relative`, `auto`). If the site shows no dates, say so. Newest-first order is then what matters.
+- **Selectors:** CSS. `"a.title"` reads text, `"a.title@href"` reads an attribute, `"@data-id"` reads an attribute of the item itself. Prefer data attributes, ARIA roles and stable class names over generated ones.
+- **Browser actions:** only `goto`, `wait`, `click`, `fill`, `select`, `scroll` and `extract`, ending with `extract`.
+- **Script rules** export `default async function fetchJobs({ terms, mode, signal, fetch, cheerio, page, log })` and return `[{ external_id, title, url, location, department, posted_at, search_term }]`. `log` is an object: use `log.info(msg, data)`. They run in a sandbox with network access but no file system.
+- **Don't** log in, submit applications, or bypass captchas.
 
 ## Final answer
 
-Reply with **only** this JSON object (no prose around it):
+Reply with **only** this JSON object:
 
 ```json
 {
   "candidates": [
-    { "strategy": "url", "rule": { }, "notes": "why this works" },
-    { "strategy": "playwright", "rule": { }, "notes": "why this works" }
+    { "strategy": "url | playwright | script", "rule": { }, "notes": "why this works" }
   ],
   "evidence": {
-    "ats_detected": "greenhouse | lever | ashby | smartrecruiters | workday | other | none",
-    "source_request": "endpoint you found, if any",
+    "ats_detected": "greenhouse | lever | ashby | smartrecruiters | workday | oracle | other | none",
+    "source_request": "endpoint you used, if any",
     "site_supports_sort_newest": true,
     "how_to_get_newest": "one sentence: how new postings are reached (sort param, first page, …)",
-    "recommended_strategy": "url | playwright | script: which one Earlybird should run on every later run, and why in one sentence",
+    "recommended_strategy": "url | playwright | script: and why in one sentence",
     "visible_job_count": 42,
     "visible_role_job_count": 7,
-    "newest_titles": ["the 3-5 newest job titles you saw on the site that match our roles (or overall if no roles)"],
+    "newest_titles": ["the 5-10 newest matching titles you saw on the site"],
     "example_titles": ["a few other titles"],
-    "skipped": { "playwright": "reason, only if a strategy was left out" },
+    "skipped": { "url": "reason, only if a strategy was left out" },
     "notes": "anything the operator should know"
   }
 }
 ```
 
-For a script candidate, add `"code": "<the module source>"` next to `"rule": { "type": "script", "uses_browser": false, "search": { "mode": "per_term" } }`.
+For a script candidate add `"code": "<the module source>"` next to the rule.
 
 ## Rule schema
 

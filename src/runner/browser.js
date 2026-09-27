@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getBrowser } from './browser-pool.js';
 import { extractHtml, looksLikeCaptcha } from './extract.js';
 import { applyTemplate } from './normalize.js';
+import { applyPagination, maxPagesFor, pageValue } from './paginate.js';
 import { Blocked, Cancelled, HttpError, InvalidRule, RunnerError, SelectorNotFound, Timeout } from './errors.js';
 import { BROWSER_ACTIONS } from '../schema/rule.js';
 
@@ -39,8 +40,45 @@ async function saveArtifacts(page, context, ctx, label) {
   ctx.meta.artifacts = { ...(ctx.meta.artifacts || {}), ...out };
 }
 
-/** Runs a `browser` rule's actions for one query and extracts raw items. */
+/**
+ * Runs a `browser` rule for one query. With `pagination` (page/offset param on the first `goto` URL), the actions are
+ * repeated per page until the job cap, `max_pages` (or `fast_max_pages`), an empty page or a repeated page.
+ */
 export async function runBrowser(rule, ctx, query) {
+  if (!rule.pagination || rule.pagination.kind === 'cursor') return runBrowserOnce(rule, ctx, query);
+  const p = rule.pagination;
+  const gotoIndex = rule.actions.findIndex((a) => a.do === 'goto');
+  const maxPages = maxPagesFor(rule, ctx.mode);
+  const raw = [];
+  let baseUrl;
+  let prevFirst;
+  for (let i = 0; i < maxPages; i++) {
+    if (ctx.maxJobs && raw.length >= ctx.maxJobs) {
+      ctx.meta.hit_cap = true;
+      break;
+    }
+    const goto = rule.actions[gotoIndex];
+    const url = applyPagination({ url: applyTemplate(goto.url, { query }, { urlEncode: true }) }, p, pageValue(p, i)).url;
+    // After page 1, an empty page is the normal way to end: don't wait the full timeout for cards that never come.
+    const actions = rule.actions.map((a, j) => (j === gotoIndex ? { ...a, url } : i > 0 && a.do === 'wait' && a.selector ? { ...a, optional: true, timeout_ms: 5000 } : a));
+    let page;
+    try {
+      page = await runBrowserOnce({ ...rule, actions, pagination: undefined }, ctx, query);
+    } catch (err) {
+      if (i > 0 && err.type === 'SelectorNotFound') break; // past the last page
+      throw err;
+    }
+    baseUrl ??= page.baseUrl;
+    if (!page.raw.length) break;
+    const first = JSON.stringify(page.raw[0]);
+    if (first === prevFirst) break; // the site ignored the page param
+    prevFirst = first;
+    raw.push(...page.raw);
+  }
+  return { raw, baseUrl };
+}
+
+async function runBrowserOnce(rule, ctx, query) {
   for (const a of rule.actions) if (!BROWSER_ACTIONS.includes(a.do)) throw new InvalidRule(`unknown browser action "${a.do}"`);
   const fast = ctx.mode === 'fast' && rule.sorted_newest_first;
   const vars = { query };
@@ -86,7 +124,7 @@ export async function runBrowser(rule, ctx, query) {
         case 'wait': {
           if (a.selector) {
             try {
-              await page.locator(a.selector).first().waitFor({ state: a.state });
+              await page.locator(a.selector).first().waitFor({ state: a.state, timeout: a.timeout_ms });
             } catch (e) {
               if (!a.optional) throw e;
               rec.skipped = true;

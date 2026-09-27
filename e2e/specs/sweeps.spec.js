@@ -43,6 +43,32 @@ test.describe('fast and full sweeps', () => {
   });
 });
 
+test.describe('browser rules with URL pagination', () => {
+  test('a Playwright rule follows ?page=N until the cap / last page', async ({ api, mocks, mockPortal }) => {
+    const { company } = await seedCompany(api, mocks.portal.url, {
+      kind: 'spa',
+      role_mode: 'all_jobs',
+      rule: {
+        item_selector: 'li.job',
+        search: { mode: 'none' },
+        sorted_newest_first: true,
+        fast_max_pages: 1,
+        pagination: { kind: 'page', param: 'page', page_size: 10, max_pages: 5 },
+        actions: [{ do: 'goto', url: `${mocks.portal.url}/html/acme` }, { do: 'wait', selector: 'li.job' }, { do: 'extract' }],
+        fields: { id: '@data-job-id', title: 'a.job-title', url: 'a.job-title@href', location: '.loc', posted_at: 'time@datetime' },
+      },
+    });
+    await mockPortal.reset();
+    await api.tick(); // baseline = full: pages 1..3 (25 jobs), page 4 is empty
+    const pages = (await mockPortal.hits()).filter((h) => h.kind === 'html').map((h) => Number(h.query.page || 1));
+    expect(pages.slice(0, 3)).toEqual([1, 2, 3]);
+    expect((await api.get(`/api/jobs?company_id=${company.id}&limit=500`)).items).toHaveLength(25);
+    await mockPortal.reset();
+    await nextTick(api, 16); // fast: page 1 only
+    expect((await mockPortal.hits()).filter((h) => h.kind === 'html').map((h) => Number(h.query.page || 1))).toEqual([1]);
+  });
+});
+
 test.describe('stale jobs', () => {
   test('a removed job is closed after two full sweeps (not by fast sweeps) and deleted after retention', async ({ api, mocks, mockPortal }) => {
     const { company } = await seedCompany(api, mocks.portal.url, { kind: 'gh', role_mode: 'all_jobs' });
