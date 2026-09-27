@@ -32,6 +32,11 @@ Answer these, then pick the strategy:
 - **Otherwise** (the data comes from a private or authenticated API such as GraphQL with `doc_id`, CSRF/`lsd` tokens or session cookies, or it's rendered by JavaScript) → **Playwright rule**. Use the page's own URL parameters for search, sort and page when it has them (they're visible in the address bar after you search or sort), else UI actions. **Don't** try to reproduce private APIs, token handshakes or cookies, and don't read request bodies of private APIs.
 - **Script rules** are a last resort: only when a URL rule is impossible *and* a Playwright rule can't reach the jobs.
 
+**How to find search/sort (learned from real runs):**
+- **Try the URL first.** Most sites keep search and sort in the address bar. After typing a search or choosing "Newest", read `location.href` with one `browser_evaluate`. If the sort isn't in the URL yet, try the common params directly with `browser_navigate`: `sort=newest`, `sort=recent`, `sort=date`, `sort_by=date`, `sort_by_new=true`, `sortBy=POSTING_DATES_DESC`, `orderby=date`. A URL param makes the rule simpler and more reliable than clicking.
+- **Clicking:** pass the element's **snapshot ref** (e.g. `e586` from the latest snapshot) or a Playwright selector such as `text=Newest` or `role=radio[name="Newest"]` as `target`, never a description like "Newest sort button". Refs change when the page re-renders: take a fresh snapshot if one fails. **If a click fails twice, stop clicking** and look for the URL param instead.
+- **Don't set up location, team or other filters in the UI.** Earlybird filters locations and titles itself. Only search (role) and sort (newest) matter.
+
 ### 3. newest jobs = your reference (≤ 3 steps)
 On the site, sorted newest first and searched for our roles, note the **5–10 newest matching job titles** (and their posted dates if shown). These go in `evidence.newest_titles`, and your rule must return them. One `browser_find` or a small `browser_evaluate` that returns titles is enough.
 
