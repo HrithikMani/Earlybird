@@ -73,7 +73,8 @@ export async function startMockPortal(port = 0) {
     return jobs;
   }
 
-  const origin = () => `http://127.0.0.1:${server.address().port}`;
+  let originUrl = "";
+  const origin = () => originUrl;
   const jobUrl = (b, j, extra = '') => `${origin()}/job/${b.name}/${j.id}${extra}`;
 
   const server = http.createServer(async (req, res) => {
@@ -152,7 +153,7 @@ export async function startMockPortal(port = 0) {
     if (kind === 'gh') {
       const jobs = jobsFor({ sort: 'newest' });
       return json(200, {
-        jobs: jobs.map((j) => ({ id: Number(j.id), title: j.title, absolute_url: jobUrl(b, j, '?gh_src=abc123'), location: { name: j.location }, updated_at: new Date(j.posted_at).toISOString(), departments: [{ name: j.department }] })),
+        jobs: jobs.map((j) => ({ id: /^d+$/.test(j.id) ? Number(j.id) : j.id, title: j.title, absolute_url: jobUrl(b, j, '?gh_src=abc123'), location: { name: j.location }, updated_at: new Date(j.posted_at).toISOString(), departments: [{ name: j.department }] })),
         meta: { total: jobs.length },
       });
     }
@@ -250,6 +251,7 @@ setTimeout(() => fetch('/spa-data/${name}').then(r => r.json()).then(d => { all 
 
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
   const actual = server.address().port;
+  originUrl = `http://127.0.0.1:${actual}`;
   return {
     port: actual,
     url: `http://127.0.0.1:${actual}`,

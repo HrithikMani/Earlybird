@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "67103ae1-00b3-4476-8775-1cb20c4592fb",
+  "id": "fbd1b3bc-9ee3-427e-a9db-6b281f5c79a8",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "alerts": {
@@ -146,6 +146,20 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "baseline_rule_id": {
+          "name": "baseline_rule_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_alert_state": {
+          "name": "last_alert_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "interval_min": {
           "name": "interval_min",

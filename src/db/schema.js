@@ -22,6 +22,8 @@ export const companies = sqliteTable('companies', {
   active_rule_id: text('active_rule_id'),
   fallback_rule_id: text('fallback_rule_id'),
   using_fallback: integer('using_fallback', { mode: 'boolean' }).notNull().default(false),
+  baseline_rule_id: text('baseline_rule_id'),
+  last_alert_state: text('last_alert_state'),
   interval_min: integer('interval_min'),
   effective_interval_min: integer('effective_interval_min'),
   source_filters: json('source_filters'),

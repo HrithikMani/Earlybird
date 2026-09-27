@@ -20,6 +20,8 @@ CREATE TABLE `companies` (
 	`active_rule_id` text,
 	`fallback_rule_id` text,
 	`using_fallback` integer DEFAULT false NOT NULL,
+	`baseline_rule_id` text,
+	`last_alert_state` text,
 	`interval_min` integer,
 	`effective_interval_min` integer,
 	`source_filters` text,

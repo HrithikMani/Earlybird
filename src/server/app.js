@@ -12,9 +12,13 @@ import logRoutes from './routes/logs.js';
 import modelRoutes from './routes/models.js';
 import statsRoutes from './routes/stats.js';
 import testRoutes from './routes/test.js';
+import companyRoutes from './routes/companies.js';
+import ruleRoutes from './routes/rules.js';
+import roleRoutes from './routes/roles.js';
+import jobRoutes from './routes/jobs.js';
 
 /** Route modules registered in order. Later phases append to this list. */
-export const routeModules = [systemRoutes, settingsRoutes, logRoutes, modelRoutes, statsRoutes, testRoutes];
+export const routeModules = [systemRoutes, settingsRoutes, logRoutes, modelRoutes, statsRoutes, testRoutes, companyRoutes, ruleRoutes, roleRoutes, jobRoutes];
 
 export async function buildServer({ extraRoutes = [], withWeb = true } = {}) {
   const app = Fastify({

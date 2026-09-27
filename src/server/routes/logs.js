@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray, like, lt, or } from 'drizzle-orm';
 import { getDb, schema } from '../../db/index.js';
 import { logBus } from '../../log/logger.js';
 import { openSse } from '../sse.js';
+import { flushDbSink } from '../../log/db-sink.js';
 
 const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
 const L = schema.logs;
@@ -13,6 +14,7 @@ function levelsFrom(min) {
 
 export default async function logRoutes(app) {
   app.get('/api/logs', async (req) => {
+    flushDbSink(); // include entries still in the write buffer
     const q = req.query;
     const where = [];
     if (q.level) where.push(inArray(L.level, levelsFrom(q.level)));

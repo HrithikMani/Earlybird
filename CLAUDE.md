@@ -323,6 +323,17 @@ Triggered when a company is added, when "Re-run discovery" is clicked, or sugges
 
 **Inputs to the agent:** company name, careers URL, the company's **effective roles** (name + search terms), source filters (location/department), and an optional operator note.
 
+**The agent works in four explicit phases**, and the prompt (`prompts/discover-rule.md`) walks it through them in this order. Each phase shows up as a labelled `phase` event in the task's live view, so you can see where it is:
+
+1. **Explore:** open the careers page in Playwright (MCP) and load it like a user would.
+2. **Analyze:**
+   - the **URL** (path, query params, ATS domain)
+   - the **page** (how listings are rendered, item markup, pagination / "load more")
+   - the **network requests** (ATS API or hidden JSON endpoint)
+   - the **search and filters**: how to search by role, filter by location, and above all **how to get the newest jobs** (sort-by-date param or control, date labels, where new postings appear)
+3. **Build and test rules:** form a URL rule and a Playwright rule (or a script if needed) from what it learned. Run each with `run_rule` using the real role terms, and check that the results contain the **newest jobs it saw on the site** with the correct titles, links and dates. Fix and re-run until they do.
+4. **Commit:** return the tested candidates plus evidence (newest titles, visible counts). Code then validates, scores, saves the winner as active and the other as fallback, and records the baseline. The task ends with a clear summary: "Rules committed and ready for scheduled runs", with the active rule id, its strategy, and why it won.
+
 1. **Agent run** with `prompts/discover-rule.md`, Playwright MCP tools, any enabled extra MCP servers, and the custom `run_rule` tool so the agent can test rules itself (including with real role terms) before answering.
 2. The agent works out **how this portal can be searched/filtered by role, location and date**:
    - URL route: ATS API params, hidden JSON endpoint params, or query strings (`?q=devops&sort=newest`).
