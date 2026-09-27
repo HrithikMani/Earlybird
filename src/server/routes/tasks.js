@@ -52,6 +52,15 @@ export default async function taskRoutes(app) {
     return { task, events, company: task.company_id ? getCompany(task.company_id) : null, retry_chain: chain, retries: children, limits: { maxCostUsd, maxSteps, maxWallTimeMin } };
   });
 
+  // Step-by-step review: every AI step in plain words, with flags for steps the prompt should prevent.
+  app.get('/api/tasks/:id/review', async (req, reply) => {
+    const task = getTask(req.params.id);
+    if (!task) return reply.code(404).send({ error: 'not_found' });
+    const { buildStepReview } = await import('../../agents/step-review.js');
+    const events = getSqlite().prepare('select * from task_events where task_id = ? order by seq').all(task.id).map(parseEvent);
+    return { task_id: task.id, status: task.status, prompt_file: task.prompt_file, prompt_hash: task.prompt_hash, model: task.model, ...buildStepReview(events) };
+  });
+
   // Full transcript (task + every event) as a JSON download, for reviewing a run while tuning prompts.
   app.get('/api/tasks/:id/transcript', async (req, reply) => {
     const task = getTask(req.params.id);

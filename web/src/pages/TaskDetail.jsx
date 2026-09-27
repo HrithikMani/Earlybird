@@ -3,6 +3,7 @@ import { api, subscribe } from '../api.js';
 import { navigate, useApi } from '../hooks.js';
 import { ActionButton, Badge, Card, ErrorBox, Json, fmtElapsed, fmtTime, taskDuration } from '../components/ui.jsx';
 import { ACTIVE } from '../components/tasks.jsx';
+import { StepLog } from '../components/step-log.jsx';
 
 const PHASES = ['explore', 'analyze', 'build', 'test', 'commit'];
 const PHASE_LABEL = { explore: 'Explore', analyze: 'Analyze', build: 'Build rules', test: 'Test rules', commit: 'Commit', verify: 'Verify' };
@@ -186,6 +187,7 @@ export default function TaskDetail({ params }) {
           </div>
         </Card>
       )}
+      {task.kind !== 'synonyms' && <StepLog taskId={task.id} live={isActive} />}
       <Diagnostics task={task} events={events} />
       <Card title={`Live activity (${events.length} events)`} testId="task-events" actions={<a className="btn small" href={`/api/tasks/${task.id}/transcript`} data-testid="task-transcript">Download transcript (JSON)</a>}>
         {events.map((ev) => <Event key={ev.seq} ev={ev} />)}

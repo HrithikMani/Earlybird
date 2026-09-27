@@ -104,6 +104,16 @@ test.describe('job cap, age window and AI diagnostics', () => {
     expect(logs.items.some((l) => l.msg.startsWith('agent step'))).toBe(true);
     expect(logs.items.some((l) => l.level === 'warn' && l.msg.includes('tool call failed'))).toBe(true);
 
+    // Step-by-step log: the failed run_rule is flagged and a prompt suggestion is shown.
+    await expect(page.getByTestId('step-log')).toBeVisible();
+    await expect(page.getByTestId('finding-tool_failed')).toContainText('run_rule');
+    await page.getByTestId('step-log-flagged-only').check();
+    await expect(page.getByTestId('step-row')).toHaveCount(1);
+    await expect(page.getByTestId('step-call').filter({ hasText: '✖' })).toContainText('Tested a html rule');
+    const review = await api.get(`/api/tasks/${task.id}/review`);
+    expect(review.totals.steps).toBe(t.steps);
+    expect(review.findings.map((f) => f.code)).toContain('tool_failed');
+
     const transcript = await page.request.get(`/api/tasks/${task.id}/transcript`);
     expect(transcript.headers()['content-disposition']).toContain('transcript.json');
     expect((await transcript.json()).events.length).toBeGreaterThan(5);
