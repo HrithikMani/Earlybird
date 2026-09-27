@@ -1,6 +1,8 @@
 # Discover rules for {{company_name}}
 
-Earlybird watches **{{company_name}}**'s careers portal and posts **new job openings to Discord within minutes**. Your job is small and specific: **decide how Earlybird should read this portal on every later run, a URL rule or a Playwright rule, and prove the rule returns the newest matching jobs.** You're not documenting the site or reverse-engineering its internals.
+Earlybird watches **{{company_name}}**'s careers portal and posts **new job openings to Discord within minutes**. A cron job runs your rule **every 5 minutes**, and each run only needs the **~10 newest jobs** for our roles: whatever is new since the last run is always at the top when the list is sorted newest first.
+
+Your job is small and specific: **find the best way to get those ~10 newest matching jobs, a URL rule or a Playwright rule, and prove it works.** That means one request or one page, sorted newest first, **with no pagination**. You're not collecting every job, documenting the site, or reverse-engineering its internals.
 
 - Careers page: {{careers_url}}
 - Roles:
@@ -14,7 +16,7 @@ Earlybird watches **{{company_name}}**'s careers portal and posts **new job open
 
 {{interests}}
 
-Earlybird keeps at most the newest **{{max_jobs}}** matching jobs per run, and ignores jobs posted more than {{max_age_days}} day(s) ago. It filters locations itself too, so a rule that can't filter by location at the portal is still fine.
+Earlybird ignores jobs posted more than {{max_age_days}} day(s) ago, and it filters titles and locations itself too. So a rule that can't filter by location at the portal is still fine; the essential parts are **search by role + sort newest first + the first page**.
 
 ## The procedure (follow it in order, and keep to the step budgets)
 
@@ -34,19 +36,19 @@ Answer these, then pick the strategy:
 On the site, sorted newest first and searched for our roles, note the **5–10 newest matching job titles** (and their posted dates if shown). These go in `evidence.newest_titles`, and your rule must return them. One `browser_find` or a small `browser_evaluate` that returns titles is enough.
 
 ### 4. build + test one rule (≤ 10 steps)
-Write the rule for the chosen strategy so it returns the newest ~{{max_jobs}} jobs:
-- **URL rule:** search/sort params, page size 50–100, pagination up to ~{{max_jobs}} jobs.
-- **Playwright rule:** `goto` a URL with the search + sort params (with `{{query}}` in it), `wait` for the job cards, `extract`, plus a `pagination` block if the site has a page param (e.g. `{"kind":"page","param":"page","page_size":10,"max_pages":3}`). 1–3 pages per search term is enough, because new jobs appear on page 1 when sorted newest.
+Write the rule for the chosen strategy so that **one request or page returns the newest ~10–25 matching jobs**. Don't add `pagination`:
+- **URL rule:** the endpoint with search (`{{query}}`) + sort-newest params and a small page size (10–25).
+- **Playwright rule:** `goto` a URL with the search + sort params (with `{{query}}` in it), `wait` for the job cards, `extract`. If the site has no sort/search URL params, use `fill`/`select`/`click` for search and "newest" instead. No "load more" clicks and no pagination.
 
 To learn the markup, read the `outerHTML` of **one** job card in **one** `browser_evaluate` call, then write the selectors. Run the rule with `run_rule`, check your reference titles are in the result and that ids, URLs and dates look right, and fix it at most 2–3 times.
 
 ### 5. second strategy (optional, ≤ 5 steps)
-Only if it's cheap, e.g. a Playwright twin of a working URL rule using the same URL. If it doesn't work within the budget, skip it and say why in `evidence.skipped`.
+Only if it's cheap, e.g. a Playwright twin of a working URL rule using the same search/sort URL. If it doesn't work within the budget, skip it and say why in `evidence.skipped`.
 
 ### 6. commit
 Answer with the JSON below. Earlybird re-validates in code (two full runs and one fast run), scores the candidates, makes the best one active and keeps the other as a fallback.
 
-**Stop signals:** if you notice you're re-reading the same thing, inspecting internals you won't use, or past 25 steps, commit what you've tested. One tested rule is far more useful than none.
+**Stop signals:** if you notice you're re-reading the same thing, inspecting internals you won't use, building pagination, or you're past 25 steps, commit what you've tested. One tested rule is far more useful than none.
 
 ## Known ATS endpoints
 
@@ -59,7 +61,7 @@ Answer with the JSON below. Earlybird re-validates in code (two full runs and on
 
 ## Rule details
 
-- **Newest first:** set `"sorted_newest_first": true` only if you confirmed the order, and `fast_max_pages` (usually 1).
+- **Newest first:** set `"sorted_newest_first": true` only if you confirmed the order. If the site can't sort by date at all, say so in `evidence.notes`: then the rule returns the first page as the site orders it.
 - **`{{query}}`:** put it where the search term goes (URL, body value, or `fill` value) and set `search.mode`:
   - `per_term`: one request per term
   - `combined`: terms joined with `combine_with`
