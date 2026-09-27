@@ -25,7 +25,8 @@
     "eb": "node src/cli/eb.js",
     "verify": "node src/cli/eb.js verify run",
     "rule": "node src/cli/eb.js rule run",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "test:replay": "node scripts/replay-test.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.65",
