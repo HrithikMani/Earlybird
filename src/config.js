@@ -18,7 +18,10 @@ const dataDir = path.resolve(ROOT, process.env.DATA_DIR || 'data');
 
 export const config = {
   port: Number(process.env.PORT || 3000),
+  // 127.0.0.1 = this computer only; 0.0.0.0 = reachable from other devices on the network.
   host: process.env.HOST || '127.0.0.1',
+  // Required for requests from other devices (HTTP Basic auth, any username). Requests from this computer never need it.
+  password: process.env.EARLYBIRD_PASSWORD || '',
   dataDir,
   logLevel: process.env.LOG_LEVEL || 'info',
   isTest: process.env.EARLYBIRD_TEST === '1',

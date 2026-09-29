@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Fastify from 'fastify';
@@ -28,6 +29,17 @@ export async function buildServer({ extraRoutes = [], withWeb = true } = {}) {
     bodyLimit: 5 * 1024 * 1024,
   });
 
+  // Password for other devices on the network. The local machine (CLI, scripts, doctor) is always allowed.
+  app.addHook('onRequest', (req, reply, done) => {
+    if (isLoopback(req.socket.remoteAddress)) return done();
+    if (!config.password) {
+      reply.code(403).type('text/plain').send('Earlybird is not open to the network: set EARLYBIRD_PASSWORD in .env and restart.');
+      return;
+    }
+    if (checkBasicAuth(req.headers.authorization, config.password)) return done();
+    reply.code(401).header('www-authenticate', 'Basic realm="Earlybird", charset="UTF-8"').type('text/plain').send('Password required');
+  });
+
   app.addHook('onResponse', (req, reply, done) => {
     if (req.url.startsWith('/api/') && !req.url.includes('/stream')) {
       const level = reply.statusCode >= 500 ? 'error' : reply.statusCode >= 400 ? 'warn' : 'debug';
@@ -46,6 +58,19 @@ export async function buildServer({ extraRoutes = [], withWeb = true } = {}) {
 
   if (withWeb) await mountWeb(app);
   return app;
+}
+
+export function isLoopback(addr = '') {
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+/** HTTP Basic auth check (any username), constant-time on the password. */
+export function checkBasicAuth(header, password) {
+  if (!header?.startsWith('Basic ')) return false;
+  const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
+  const given = Buffer.from(decoded.slice(decoded.indexOf(':') + 1));
+  const expected = Buffer.from(password);
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
 async function mountWeb(app) {

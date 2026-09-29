@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createMCPClient } from '@ai-sdk/mcp';
@@ -60,6 +62,9 @@ function resolveCommand(command) {
  * Playwright MCP is always included; extra servers come from Settings → MCP.
  */
 export async function connectMcp({ agent, outputDir, log }) {
+  // Run MCP servers outside the repo: files they save (snapshots, downloaded pages) land in the task's artifacts.
+  const workDir = outputDir || os.tmpdir();
+  fs.mkdirSync(workDir, { recursive: true });
   const clients = [];
   const tools = {};
   const servers = [];
@@ -69,7 +74,7 @@ export async function connectMcp({ agent, outputDir, log }) {
   }
   try {
     for (const spec of specs) {
-      const transport = new StdioMCPTransport({ command: spec.command, args: spec.args, env: { ...process.env, ...spec.env }, stderr: 'ignore' });
+      const transport = new StdioMCPTransport({ command: spec.command, args: spec.args, env: { ...process.env, ...spec.env }, stderr: 'ignore', cwd: workDir });
       const client = await createMCPClient({ transport, name: `earlybird-${agent}` });
       clients.push(client);
       const t = await client.tools();
@@ -92,7 +97,7 @@ export async function connectMcp({ agent, outputDir, log }) {
 
 /** Starts one MCP server just to list its tools ("Test connection" in Settings). */
 export async function testMcpServer(spec) {
-  const transport = new StdioMCPTransport({ command: resolveCommand(spec.command), args: spec.args || [], env: { ...process.env, ...(spec.env || {}) }, stderr: 'ignore' });
+  const transport = new StdioMCPTransport({ command: resolveCommand(spec.command), args: spec.args || [], env: { ...process.env, ...(spec.env || {}) }, stderr: 'ignore', cwd: os.tmpdir() });
   const client = await createMCPClient({ transport, name: 'earlybird-test' });
   try {
     return Object.keys(await client.tools());

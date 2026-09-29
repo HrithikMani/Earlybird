@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { config, ensureDataDirs, APP_VERSION } from './config.js';
 import { logger, attachFileSink, errorDetail } from './log/logger.js';
 import { attachDbSink, flushDbSink } from './log/db-sink.js';
@@ -26,6 +27,14 @@ async function main() {
   await startServices(app);
   await app.listen({ port: config.port, host: config.host });
   log.info({ url: `http://localhost:${config.port}` }, 'earlybird ready');
+  if (!['127.0.0.1', 'localhost', '::1'].includes(config.host)) {
+    const lan = Object.values(os.networkInterfaces())
+      .flat()
+      .filter((a) => a && a.family === 'IPv4' && !a.internal)
+      .map((a) => `http://${a.address}:${config.port}`);
+    if (config.password) log.info({ urls: lan }, `reachable on the network (password required): ${lan.join(' ')}`);
+    else log.warn({ urls: lan }, 'HOST is not local but EARLYBIRD_PASSWORD is not set: requests from other devices are refused');
+  }
 
   let stopping = false;
   const shutdown = async (signal) => {

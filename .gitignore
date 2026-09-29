@@ -1,25 +1,47 @@
-# Dependencies
+# =====================================================================
+# Earlybird .gitignore
+# Commit: source, prompts, tests, fixtures, migrations, setup scripts,
+#         package-lock.json, .env.example, .vscode/mcp.json, .github/.
+# Never commit: secrets, local data, build output, test output, caches.
+# =====================================================================
+
+# --- Dependencies ------------------------------------------------------
 node_modules/
 
-# Earlybird runtime data (SQLite DB, logs, screenshots, script rules, drafts)
+# --- Secrets / local config --------------------------------------------
+# .env holds the API key and the network password.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Earlybird runtime data ---------------------------------------------
+# SQLite DB, rotating logs, screenshots/HTML/traces of failed runs,
+# AI-generated script rules, CLI drafts.
 data/
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite3
 
-# Secrets / local config
-.env
-.env.*
-!.env.example
+# --- Browser automation output -------------------------------------------
+# Playwright MCP snapshots, and pages an agent saved while exploring.
+.playwright-mcp/
+/*.html
+*.har
+*-trace.zip
+trace.zip
 
-# Builds
+# --- Build output ---------------------------------------------------------
 web/dist/
 dist/
 build/
 *.tsbuildinfo
 
-# Tests (Playwright + vitest)
+# --- Tests ----------------------------------------------------------------
 e2e/report/
 e2e/test-results/
 test-results/
@@ -27,9 +49,8 @@ playwright-report/
 blob-report/
 playwright/.cache/
 coverage/
-.vitest/
 
-# Logs
+# --- Logs -------------------------------------------------------------------
 logs/
 *.log
 npm-debug.log*
@@ -37,13 +58,15 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Caches
+# --- Caches -----------------------------------------------------------------
 .cache/
 .eslintcache
 .npm/
 .vite/
+.vitest/
+.turbo/
 
-# OS / editor
+# --- OS / editor -----------------------------------------------------------
 .DS_Store
 Thumbs.db
 desktop.ini
