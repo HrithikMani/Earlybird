@@ -54,7 +54,7 @@ Earlybird watches company career portals and posts **new** job openings to Disco
 
 The app must boot with **no `.env` at all**. Missing settings (API key, webhooks) show as warnings on the dashboard, and features that need them are disabled until they're set.
 
-**Network access:** by default the server listens on `127.0.0.1` (this computer only). Set `HOST=0.0.0.0` and `EARLYBIRD_PASSWORD=…` in `.env` to reach it from other devices on the network. They must enter the password (HTTP Basic, any username), while requests from this computer never need it, so the CLI and scripts keep working. With `HOST=0.0.0.0` and no password, requests from other devices are refused. On Windows, the firewall must allow inbound TCP on the port for the network profile in use.
+**Network access:** by default the server listens on `127.0.0.1` (this computer only). Set `HOST=0.0.0.0` in `.env` to reach it from other devices on the network. `EARLYBIRD_PASSWORD` is optional: when set, other devices must enter it (HTTP Basic, any username); without it the dashboard is open to anyone on the network. Requests from this computer never need it. On Windows, the firewall must allow inbound TCP on the port for the network profile in use.
 
 ## Setup (macOS, Windows, Linux)
 

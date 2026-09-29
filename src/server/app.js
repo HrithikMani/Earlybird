@@ -29,13 +29,10 @@ export async function buildServer({ extraRoutes = [], withWeb = true } = {}) {
     bodyLimit: 5 * 1024 * 1024,
   });
 
-  // Password for other devices on the network. The local machine (CLI, scripts, doctor) is always allowed.
+  // Optional password for other devices on the network (EARLYBIRD_PASSWORD). Without one, the network is open.
+  // The local machine (CLI, scripts, doctor) never needs it.
   app.addHook('onRequest', (req, reply, done) => {
-    if (isLoopback(req.socket.remoteAddress)) return done();
-    if (!config.password) {
-      reply.code(403).type('text/plain').send('Earlybird is not open to the network: set EARLYBIRD_PASSWORD in .env and restart.');
-      return;
-    }
+    if (!config.password || isLoopback(req.socket.remoteAddress)) return done();
     if (checkBasicAuth(req.headers.authorization, config.password)) return done();
     reply.code(401).header('www-authenticate', 'Basic realm="Earlybird", charset="UTF-8"').type('text/plain').send('Password required');
   });

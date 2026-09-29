@@ -33,7 +33,7 @@ async function main() {
       .filter((a) => a && a.family === 'IPv4' && !a.internal)
       .map((a) => `http://${a.address}:${config.port}`);
     if (config.password) log.info({ urls: lan }, `reachable on the network (password required): ${lan.join(' ')}`);
-    else log.warn({ urls: lan }, 'HOST is not local but EARLYBIRD_PASSWORD is not set: requests from other devices are refused');
+    else log.warn({ urls: lan }, `reachable on the network WITHOUT a password (anyone on this network can use it): ${lan.join(' ')}`);
   }
 
   let stopping = false;
