@@ -86,7 +86,11 @@ export function locationMatches(location, wanted) {
     // "Austin, TX" / "Seattle, Washington" with no country: a US state code or name at a comma boundary.
     // Only "City, ST" (optionally followed by nothing else), so "Bangalore, KA, IN" is not read as Indiana.
     const parts = String(location).split(/[,;|/()]/).map((p) => normalizeText(p).trim()).filter(Boolean);
-    if (parts.length === 2 && US_STATES.includes(parts[1])) return true;
+    // Any "City, ST" pair ("Atlanta, GA, Indianapolis, IN, …"). The city must be a real name (> 2 letters, not a
+    // state code), so "Bangalore, KA, IN" / "Pune, MH, IN" are not read as Indiana.
+    for (let i = 1; i < parts.length; i++) {
+      if (US_STATES.includes(parts[i]) && parts[i - 1].length > 2 && !US_STATES.includes(parts[i - 1])) return true;
+    }
     if (parts.some((p) => US_STATE_NAMES.includes(p)) && !Object.entries(COUNTRY_ALIASES).some(([k, a]) => k !== 'us' && a.some((x) => loc.includes(` ${x} `)))) return true;
   }
   return false;
