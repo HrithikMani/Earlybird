@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Fastify from 'fastify';
@@ -13,6 +12,8 @@ import logRoutes from './routes/logs.js';
 import modelRoutes from './routes/models.js';
 import statsRoutes from './routes/stats.js';
 import testRoutes from './routes/test.js';
+import authRoutes from './routes/auth.js';
+import { SESSION_COOKIE, authRequired, initAuth, readCookie, verifySession } from './auth.js';
 import companyRoutes from './routes/companies.js';
 import ruleRoutes from './routes/rules.js';
 import roleRoutes from './routes/roles.js';
@@ -20,7 +21,7 @@ import jobRoutes from './routes/jobs.js';
 import taskRoutes from './routes/tasks.js';
 
 /** Route modules registered in order. Later phases append to this list. */
-export const routeModules = [systemRoutes, settingsRoutes, logRoutes, modelRoutes, statsRoutes, testRoutes, companyRoutes, ruleRoutes, roleRoutes, jobRoutes, taskRoutes];
+export const routeModules = [authRoutes, systemRoutes, settingsRoutes, logRoutes, modelRoutes, statsRoutes, testRoutes, companyRoutes, ruleRoutes, roleRoutes, jobRoutes, taskRoutes];
 
 export async function buildServer({ extraRoutes = [], withWeb = true } = {}) {
   const app = Fastify({
@@ -29,12 +30,20 @@ export async function buildServer({ extraRoutes = [], withWeb = true } = {}) {
     bodyLimit: 5 * 1024 * 1024,
   });
 
-  // Optional password for other devices on the network (EARLYBIRD_PASSWORD). Without one, the network is open.
-  // The local machine (CLI, scripts, doctor) never needs it.
+  // Login (when EARLYBIRD_PASSWORD is set): pages redirect to /login, API calls get 401 until signed in.
+  // This computer skips it unless EARLYBIRD_AUTH_LOCAL=1, so the CLI and scripts keep working.
+  initAuth();
+  const PUBLIC_PATHS = new Set(['/login', '/logout', '/api/auth/me', '/favicon.ico']);
   app.addHook('onRequest', (req, reply, done) => {
-    if (!config.password || isLoopback(req.socket.remoteAddress)) return done();
-    if (checkBasicAuth(req.headers.authorization, config.password)) return done();
-    reply.code(401).header('www-authenticate', 'Basic realm="Earlybird", charset="UTF-8"').type('text/plain').send('Password required');
+    if (!authRequired(req.socket.remoteAddress)) return done();
+    const pathOnly = req.url.split('?')[0];
+    if (PUBLIC_PATHS.has(pathOnly)) return done();
+    if (verifySession(readCookie(req.headers.cookie, SESSION_COOKIE))) return done();
+    if (req.method === 'GET' && !pathOnly.startsWith('/api/')) {
+      reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+      return;
+    }
+    reply.code(401).send({ error: 'login_required', message: 'Sign in at /login' });
   });
 
   app.addHook('onResponse', (req, reply, done) => {
@@ -55,19 +64,6 @@ export async function buildServer({ extraRoutes = [], withWeb = true } = {}) {
 
   if (withWeb) await mountWeb(app);
   return app;
-}
-
-export function isLoopback(addr = '') {
-  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
-}
-
-/** HTTP Basic auth check (any username), constant-time on the password. */
-export function checkBasicAuth(header, password) {
-  if (!header?.startsWith('Basic ')) return false;
-  const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
-  const given = Buffer.from(decoded.slice(decoded.indexOf(':') + 1));
-  const expected = Buffer.from(password);
-  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
 async function mountWeb(app) {

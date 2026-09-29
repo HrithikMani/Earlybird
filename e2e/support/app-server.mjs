@@ -37,7 +37,7 @@ export async function startApp({ port, env = {}, dataDir } = {}) {
       if (child.exitCode !== null) throw new Error(`app exited early (code ${child.exitCode}); see ${logFile}`);
       try {
         const res = await fetch(`${url}/api/health`);
-        if (res.ok || res.status === 503) return;
+        if (res.status) return; // any HTTP answer means it's up (401 when a login is required)
       } catch {
         // not up yet
       }

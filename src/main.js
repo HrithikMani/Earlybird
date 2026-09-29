@@ -32,8 +32,8 @@ async function main() {
       .flat()
       .filter((a) => a && a.family === 'IPv4' && !a.internal)
       .map((a) => `http://${a.address}:${config.port}`);
-    if (config.password) log.info({ urls: lan }, `reachable on the network (password required): ${lan.join(' ')}`);
-    else log.warn({ urls: lan }, `reachable on the network WITHOUT a password (anyone on this network can use it): ${lan.join(' ')}`);
+    if (config.password) log.info({ urls: lan }, `reachable on the network (login required): ${lan.join(' ')}`);
+    else log.warn({ urls: lan }, `reachable on the network WITHOUT a login (anyone on this network can use it): ${lan.join(' ')}`);
   }
 
   let stopping = false;

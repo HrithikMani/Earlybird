@@ -20,8 +20,10 @@ export const config = {
   port: Number(process.env.PORT || 3000),
   // 127.0.0.1 = this computer only; 0.0.0.0 = reachable from other devices on the network.
   host: process.env.HOST || '127.0.0.1',
-  // Required for requests from other devices (HTTP Basic auth, any username). Requests from this computer never need it.
+  // Dashboard login: enabled when a password is set. This computer skips it unless EARLYBIRD_AUTH_LOCAL=1.
+  username: process.env.EARLYBIRD_USERNAME || 'admin',
   password: process.env.EARLYBIRD_PASSWORD || '',
+  authLocal: process.env.EARLYBIRD_AUTH_LOCAL === '1',
   dataDir,
   logLevel: process.env.LOG_LEVEL || 'info',
   isTest: process.env.EARLYBIRD_TEST === '1',

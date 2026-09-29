@@ -19,6 +19,10 @@ async function request(method, url, body) {
   } catch {
     data = { message: text };
   }
+  if (res.status === 401 && data?.error === 'login_required') {
+    // Session expired or never signed in: go to the login page and come back afterwards.
+    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.hash)}`;
+  }
   if (!res.ok) throw new ApiError(res.status, data);
   return data;
 }

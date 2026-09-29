@@ -32,6 +32,7 @@ function NotFound() {
 export default function App() {
   const { path, query } = useRoute();
   const health = useApi('/api/health', { intervalMs: 15000 });
+  const me = useApi('/api/auth/me');
   const [Page, params] = resolve(path);
   const section = '/' + (path.split('/')[1] || '');
   return (
@@ -45,6 +46,24 @@ export default function App() {
             </a>
           ))}
         </nav>
+        {me.data?.user && (
+          <div className="small muted" style={{ padding: '16px 10px 0', borderTop: '1px solid var(--border)', marginTop: 16 }} data-testid="signed-in">
+            Signed in as <strong>{me.data.user}</strong>
+            <div>
+              <button
+                className="btn small"
+                style={{ marginTop: 8 }}
+                data-testid="logout"
+                onClick={async () => {
+                  await fetch('/logout', { method: 'POST' });
+                  window.location.href = '/login';
+                }}
+              >
+                Log out
+              </button>
+            </div>
+          </div>
+        )}
       </aside>
       <main className="main">
         {health.data?.scheduler?.stalled && (
