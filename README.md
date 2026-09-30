@@ -23,6 +23,7 @@ Earlybird watches company careers pages (Amazon, JPMorgan Chase, Meta, any site)
 - [Commands](#commands)
 - [Using it from GitHub Copilot / Claude Code](#using-it-from-github-copilot--claude-code)
 - [Testing](#testing)
+- [Architecture](#architecture)
 - [Project structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
 - [Tech stack](#tech-stack)
@@ -31,25 +32,15 @@ Earlybird watches company careers pages (Amazon, JPMorgan Chase, Meta, any site)
 
 ## How it works
 
-```
- Add a careers URL
-        │
-        ▼
- ┌──────────────────────────────┐   once per company (AI, ~2–5 min, ~$0.40)
- │ Discovery agent (Claude)     │   opens the site in Playwright, finds how to get
- │ → a "rule"                   │   the newest jobs: a URL/API rule or a browser rule,
- └──────────────┬───────────────┘   tests it, and saves the best one
-                │
-                ▼
- ┌──────────────────────────────┐   every 5–15 min (plain code, no AI)
- │ Scheduler runs the rule      │   fetches the newest ~10–100 jobs for your roles
- └──────────────┬───────────────┘
-                ▼
- ┌──────────────────────────────┐
- │ Dedupe + filters             │   never seen before? matches a role? right location?
- └──────────────┬───────────────┘   posted recently?
-                ▼
-          Discord message 🔔
+```mermaid
+flowchart TD
+    A["You add a careers URL<br/>+ your roles and location"] --> B["Discovery agent (Claude + Playwright)<br/>once per company · ~2–5 min · ~$0.40"]
+    B -->|"finds how to get the newest jobs<br/>and tests it"| C[("Rule rul_…<br/>URL/API or browser")]
+    C --> D["Scheduler<br/>every 5–15 min · plain code, no AI"]
+    D --> E["Fetch the newest jobs<br/>for your roles"]
+    E --> F{"Never seen before?<br/>Role · location · age OK?"}
+    F -->|yes| G["🔔 Discord message"]
+    F -->|no| H["Stored with the reason<br/>(never sent twice)"]
 ```
 
 **Rules.** Each company gets a *rule*: a small JSON recipe for reading its jobs.
@@ -236,6 +227,238 @@ In VS Code: open `.vscode/mcp.json` → **Start** the `playwright` server → Co
 npm run test:all       # unit + e2e
 npm run test:report    # open the last Playwright report (traces, screenshots, videos)
 ```
+
+---
+
+## Architecture
+
+Earlybird is a single Node.js process: a Fastify server, the scheduler, the background task queue and the AI agents all run together, backed by one SQLite file.
+
+### System overview
+
+```mermaid
+flowchart TB
+    subgraph clients["Clients"]
+        direction LR
+        UI["Dashboard<br/>React + Vite"]
+        CLI["Agent CLI<br/>npm run eb"]
+        IDE["GitHub Copilot /<br/>Claude Code"]
+    end
+
+    subgraph app["Earlybird: one Node.js process"]
+        API["Fastify server<br/>REST · live updates (SSE) · login"]
+        subgraph ai["AI side (only when creating or checking rules)"]
+            direction LR
+            QUEUE["Task queue<br/>stop · kill · retry"] --> AGENTS["AI agents<br/>discovery · verify"]
+        end
+        subgraph sched["Scheduled side (every few minutes, no AI)"]
+            direction LR
+            SCHED["Scheduler<br/>croner"] --> RUNNER["Runner<br/>api · html · browser · script"] --> INGEST["Dedupe + filters<br/>role · location · age"] --> OUTBOX["Discord outbox<br/>exactly once"]
+        end
+        API --> QUEUE
+        API --> SCHED
+        AGENTS -->|"run_rule tool"| RUNNER
+    end
+
+    subgraph storage["Local storage (data/)"]
+        direction LR
+        DB[("SQLite<br/>companies · rules · jobs · seen_jobs")]
+        FILES[("logs · screenshots<br/>script rules")]
+    end
+
+    subgraph ext["Outside services"]
+        direction LR
+        CLAUDE["Anthropic API<br/>Claude"]
+        MCP["Playwright MCP<br/>Chromium"]
+        SITES["Careers sites<br/>Amazon · JPMC · Meta …"]
+        DISCORD["Discord"]
+    end
+
+    UI --> API
+    IDE --> CLI
+    CLI --> DB
+    app --> storage
+    AGENTS --> CLAUDE
+    AGENTS --> MCP
+    MCP --> SITES
+    RUNNER --> SITES
+    OUTBOX --> DISCORD
+```
+
+- **Runner** is pure: given a rule, it returns jobs. It never touches the database or calls AI, so discovery, validation, the scheduler and the CLI all run rules the same way.
+- **AI is used only in `src/agents/`**, and only to *create* or *check* rules. Scheduled checks never call Claude.
+- **The CLI** reads and writes the database directly (safe while the app runs), and talks to the server only for task commands.
+
+### Discovery: from a URL to a live rule
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant UI as Dashboard
+    participant Q as Task queue
+    participant AG as Discovery agent
+    participant C as Claude
+    participant PW as Playwright MCP
+    participant R as Runner
+    participant V as Validator
+    participant DB as SQLite
+
+    You->>UI: Add company (URL, roles, location)
+    UI->>Q: enqueue discovery task
+    Q->>AG: start (limits: $2 · 60 steps · 10 min)
+    loop explore → analyze → build → test
+        AG->>C: prompt + tools
+        C->>PW: open page, snapshot, network requests
+        PW-->>C: page / requests
+        C->>R: run_rule(draft rule)
+        R-->>C: newest jobs found
+    end
+    C-->>AG: final JSON: URL and/or Playwright candidates + evidence
+    AG->>V: validate each candidate (2 full runs + 1 fast run, real role terms)
+    V-->>AG: scores: freshness · completeness · relevance · stability · cost
+    AG->>DB: best → active rule, runner-up → fallback
+    AG->>R: baseline run (record current jobs, send nothing)
+    AG-->>UI: "Rules committed and ready for scheduled runs"
+```
+
+Every step is recorded: the task page shows a step-by-step log with the cost of each phase, and flags avoidable steps (failed clicks, retries, off-task actions) so the prompt can be improved.
+
+### A scheduled run
+
+```mermaid
+flowchart TD
+    T["Scheduler tick (every minute)"] --> DUE{"Company due?<br/>interval 5–15 min"}
+    DUE -->|no| WAIT["skip"]
+    DUE -->|yes| RUN["Run the active rule<br/>(or the fallback if the active one is failing)"]
+    RUN -->|error| ERR["Record error + screenshot<br/>update health"]
+    ERR --> ALERT["Alert on Discord<br/>failing · blocked · recovered"]
+    RUN -->|jobs| DATES["No dates in the list?<br/>read datePosted from new jobs' pages"]
+    DATES --> DEDUPE{"Seen before?<br/>by id · clean URL · title+location"}
+    DEDUPE -->|yes| REFRESH["Refresh listing<br/>(never re-sent)"]
+    DEDUPE -->|no| CHECKS{"Baseline? Role match?<br/>Location? Posted ≤ 7 days?"}
+    CHECKS -->|fails| SKIP["Store with skip reason"]
+    CHECKS -->|passes| QUEUE["Queue notification<br/>(same DB transaction)"]
+    QUEUE --> SEND["Outbox → Discord<br/>retry on 429 / errors"]
+    SEND --> OK["🔔 Posted once"]
+```
+
+### Company lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending_discovery: company added
+    pending_discovery --> discovering: task starts
+    discovering --> active: rule committed
+    discovering --> needs_review: no rule passed validation
+    needs_review --> pending_discovery: Re-run discovery / Retry
+    active --> degraded: 0 jobs twice · big drop
+    active --> failing: 3 errors · 404 · broken selector
+    degraded --> active: healthy run
+    failing --> active: healthy run (maybe on the fallback rule)
+    active --> paused: Pause
+    paused --> active: Resume
+    active --> pending_discovery: Re-run discovery
+```
+
+### Data model
+
+```mermaid
+erDiagram
+    COMPANIES ||--o{ RULES : has
+    COMPANIES ||--o{ ROLES : "company roles"
+    COMPANIES ||--o{ JOBS : lists
+    COMPANIES ||--o{ SEEN_JOBS : remembers
+    COMPANIES ||--o{ RUNS : "scraped by"
+    COMPANIES ||--o{ TASKS : "AI tasks"
+    COMPANIES ||--o{ ALERTS : raises
+    RULES ||--o{ RUNS : "executed in"
+    RULES ||--o{ JOBS : found
+    RULES ||--o{ VERIFICATIONS : "checked by"
+    JOBS ||--o{ NOTIFICATIONS : "sent via"
+    TASKS ||--o{ TASK_EVENTS : "step log"
+
+    COMPANIES {
+        string id PK "cmp_…"
+        string name
+        string careers_url
+        string status
+        string active_rule_id
+        string fallback_rule_id
+        json source_filters "e.g. location"
+    }
+    RULES {
+        string id PK "rul_…"
+        string company_id FK
+        string slot "active · fallback · candidate · retired"
+        string type "api · html · browser · script"
+        json spec
+        json score
+    }
+    JOBS {
+        string id PK
+        string company_id FK
+        string rule_id FK
+        string job_key "dedupe key"
+        string title
+        string url
+        int posted_at
+        int first_seen_at
+        string notify_status
+        string notify_skip_reason
+    }
+    SEEN_JOBS {
+        string company_id PK
+        string job_key PK
+        string canonical_url
+        string fingerprint
+        int posted_at
+        int notified_at
+    }
+    NOTIFICATIONS {
+        string id PK
+        string job_id FK
+        string channel_id
+        string status "pending · sent · failed"
+    }
+    RUNS {
+        string id PK "run_…"
+        string rule_id FK
+        string mode "fast · full"
+        string status
+        json error_detail
+    }
+    TASKS {
+        string id PK "tsk_…"
+        string kind "discovery · verify · synonyms"
+        string status
+        float cost_usd
+        json result "incl. diagnostics"
+    }
+    TASK_EVENTS {
+        int id PK
+        string task_id FK
+        string type "phase · step · tool_call · …"
+    }
+    ROLES {
+        string id PK
+        string name
+        json search_terms
+        json synonyms
+    }
+    VERIFICATIONS {
+        string id PK
+        string rule_id FK
+        string verdict
+    }
+    ALERTS {
+        string id PK
+        string kind
+        string state
+    }
+```
+
+`seen_jobs` is the permanent memory behind "only new jobs are sent": it keeps every job ever seen (even ones that were filtered out or deleted), so the same posting can never trigger a second message.
 
 ---
 
