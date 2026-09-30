@@ -44,7 +44,6 @@ Earlybird watches company career portals and posts **new** job openings to Disco
 | `npm test` | Unit/integration tests (vitest). |
 | `npm run test:e2e` | Playwright end-to-end tests against a fully running app with a mock portal, mock Discord and a mock LLM (no tokens spent). |
 | `npm run test:e2e:ui` / `test:e2e:headed` / `test:e2e:debug` | Same, in Playwright UI mode / with a visible browser / with the inspector. |
-| `npm run test:e2e:live` | Only tests tagged `@live`: real Claude + real public ATS portals. Manual, costs tokens. |
 | `npm run test:all` | vitest + Playwright e2e (what CI runs). |
 | `npm run test:report` | Opens the last Playwright HTML report (traces, screenshots, videos). |
 | `npm run eb -- <command>` | Agent CLI for humans and external agents (Copilot, Claude Code): test/import/verify rules, manage companies and tasks. See "Prompts". |
